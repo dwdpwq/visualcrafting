@@ -15,27 +15,30 @@ build/
 .DS_Store
 Thumbs.db
 
-# Compiled classes / binaries
+# Bytecode / binaries
 *.class
 *.jar
 !gradle/wrapper/gradle-wrapper.jar
 
 # Backup files
 *.bak
+*.bak2
 
-# Temp / debug files
-*.txt
-!src/**/*.txt
-temp/
-.tmp_*
-.stub_classes/
-.stub_classes_out/
-.temp_gradle/
-jei-temp/
-mixin-temp/
-temp_class_dump/
-file-system.probe
+# Root-level prebuilt binary trees
+/com/
+/net/
 
-# Prebuilt binary tree (not source)
-com/
-net/
+# Temp / debug directories (root-level only)
+/.stub_classes/
+/.stub_classes_out/
+/.temp_gradle/
+/.tmp_recompile_out/
+/jei-temp/
+/mixin-temp/
+/temp_class_dump/
+
+# Root-level debug text files
+/*.txt
+
+# Dependency cache
+/file-system.probe
