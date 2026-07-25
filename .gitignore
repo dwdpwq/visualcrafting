@@ -1,0 +1,41 @@
+﻿# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Compiled classes / binaries
+*.class
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+
+# Backup files
+*.bak
+
+# Temp / debug files
+*.txt
+!src/**/*.txt
+temp/
+.tmp_*
+.stub_classes/
+.stub_classes_out/
+.temp_gradle/
+jei-temp/
+mixin-temp/
+temp_class_dump/
+file-system.probe
+
+# Prebuilt binary tree (not source)
+com/
+net/

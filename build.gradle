@@ -1,0 +1,61 @@
+plugins {
+    id 'java-library'
+    id 'maven-publish'
+    id 'net.neoforged.moddev' version '2.0.141'
+    id 'idea'
+}
+
+tasks.named('wrapper', Wrapper).configure {
+    distributionType = Wrapper.DistributionType.BIN
+}
+
+version = mod_version
+group = mod_group_id
+
+repositories {
+    maven {
+        url "https://api.modrinth.com/maven"
+    }
+}
+
+base { archivesName = mod_id }
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+
+neoForge {
+    version = project.neo_version
+    parchment {
+        mappingsVersion = project.parchment_mappings_version
+        minecraftVersion = project.parchment_minecraft_version
+    }
+    accessTransformers = project.files('src/main/resources/META-INF/accesstransformer.cfg')
+    runs {
+        client { client() }
+        server { server(); programArgument '--nogui' }
+    }
+    mods { "${mod_id}" { sourceSet(sourceSets.main) } }
+}
+
+dependencies {
+    implementation "maven.modrinth:kubejs:2101.7.2-build.368"
+    compileOnly "maven.modrinth:ae2:19.2.17"
+    compileOnly "maven.modrinth:jei:19.39.0.368"
+    compileOnly "maven.modrinth:mekanism:10.7.19.85"
+    compileOnly files('src/prebuilt')
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+idea {
+    module { downloadSources = true; downloadJavadoc = true }
+}
+
+// Include prebuilt classes in output jar (for files we don't compile from source)
+jar {
+    from('src/prebuilt') {
+        include '**/*.class'
+    }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}

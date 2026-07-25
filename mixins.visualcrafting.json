@@ -1,0 +1,13 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.visualcrafting.mixin",
+  "plugin": "com.visualcrafting.mixin.VisualCraftingMixinPlugin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "AEBaseScreenMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
