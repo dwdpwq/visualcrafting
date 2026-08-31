@@ -29,6 +29,10 @@ public class FurnaceExpRegistry {
             try {
                 ServerPlayer player = (ServerPlayer) context.player();
                 BlockPos pos = packet.pos();
+                // Security: reject out-of-range positions to prevent arbitrary block access.
+                if (player.distanceToSqr(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5) > 64.0 * 64.0) {
+                    return;
+                }
                 BlockEntity blockEntity = player.level().getBlockEntity(pos);
                 if (!(blockEntity instanceof InterfaceBlockEntity iface)) {
                     return;

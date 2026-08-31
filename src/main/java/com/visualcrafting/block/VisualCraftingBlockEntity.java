@@ -18,6 +18,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import javax.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 public class VisualCraftingBlockEntity extends BlockEntity {
     private static final int MAX_RECIPES = 100;
@@ -28,6 +29,9 @@ public class VisualCraftingBlockEntity extends BlockEntity {
     private int format = 0;
     private int mode = 0;
     private final List<InfusingRecipe> infusingRecipes = new ArrayList<>();
+    /** Owner (player UUID) assigned on first interaction; used for per-player recipe isolation. */
+    @Nullable
+    private UUID ownerId = null;
 
     private void trimHistory() {
         while (history.size() > 100) {
@@ -44,9 +48,55 @@ public class VisualCraftingBlockEntity extends BlockEntity {
     public void setLevel(Level level) {
         super.setLevel(level);
         if (level != null && !level.isClientSide()) {
-            RecipeRegistrar.updateTableRecipes(this.worldPosition, this.recipes, this.format);
-            RecipeRegistrar.updateInfusingTableRecipes(this.worldPosition, this.infusingRecipes, this.format);
+            registerWithRegistrar();
         }
+    }
+
+    /**
+     * Register this table in the shared registrar under the owner's player id.
+     * If no owner is known yet (legacy/loaded block), registration is deferred
+     * until the first player interacts with the table.
+     */
+    private void registerWithRegistrar() {
+        if (ownerId == null) {
+            return;
+        }
+        RecipeRegistrar.updateTableRecipes(ownerId, this.worldPosition, this.recipes, this.format);
+        RecipeRegistrar.updateInfusingTableRecipes(ownerId, this.worldPosition, this.infusingRecipes, this.format);
+    }
+
+    /** Assign the owner on first interaction; also (re)registers with the registrar. */
+    public void ensureOwner(UUID playerId) {
+        if (playerId == null) {
+            return;
+        }
+        boolean changed = ownerId == null || !ownerId.equals(playerId);
+        if (ownerId == null) {
+            ownerId = playerId;
+        }
+        if (level != null && !level.isClientSide()) {
+            registerWithRegistrar();
+        }
+        if (changed) {
+            setChanged();
+        }
+    }
+
+    @Nullable
+    public UUID getOwnerId() {
+        return ownerId;
+    }
+
+    @Override
+    public void setRemoved() {
+        if (level != null && !level.isClientSide()) {
+            if (ownerId != null) {
+                RecipeRegistrar.removeTable(ownerId, worldPosition);
+            } else {
+                RecipeRegistrar.removeTableByPos(worldPosition);
+            }
+        }
+        super.setRemoved();
     }
 
     public List<SavedRecipe> getRecipes() {
@@ -155,6 +205,9 @@ public class VisualCraftingBlockEntity extends BlockEntity {
         tag.putInt("Tier", tier);
         tag.putInt("Format", format);
         tag.putInt("Mode", mode);
+        if (ownerId != null) {
+            tag.putUUID("OwnerUUID", ownerId);
+        }
 
         ListTag recipeList = new ListTag();
         for (SavedRecipe recipe : recipes) {
@@ -175,6 +228,7 @@ public class VisualCraftingBlockEntity extends BlockEntity {
         tier = tag.getInt("Tier");
         format = tag.getInt("Format");
         mode = tag.getInt("Mode");
+        ownerId = tag.hasUUID("OwnerUUID") ? tag.getUUID("OwnerUUID") : null;
 
         recipes.clear();
         ListTag recipeList = tag.getList("Recipes", 10);

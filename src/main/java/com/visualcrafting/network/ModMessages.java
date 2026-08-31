@@ -133,6 +133,36 @@ public class ModMessages {
 
     // ===== Utility =====
 
+    /** Maximum interaction distance (blocks) for operating a visual crafting table. */
+    private static final int MAX_INTERACTION_DISTANCE = 64;
+
+    /**
+     * Validate that the packet's block position refers to a visual crafting table
+     * in the player's own world, within an allowed interaction distance.
+     * Also assigns the table owner on first interaction.
+     */
+    private static VisualCraftingBlockEntity getAccessibleTable(ServerPlayer player, BlockPos pos) {
+        if (player == null || pos == null) return null;
+        Level level = player.level();
+        if (!(level instanceof ServerLevel serverLevel)) return null;
+        if (!serverLevel.isLoaded(pos)) return null;
+        if (!(serverLevel.getBlockEntity(pos) instanceof VisualCraftingBlockEntity vcBe)) return null;
+        if (vcBe.isRemoved()) return null;
+        double distSqr = player.blockPosition().distSqr(pos);
+        if (distSqr > (double) MAX_INTERACTION_DISTANCE * MAX_INTERACTION_DISTANCE) return null;
+        vcBe.ensureOwner(player.getUUID());
+        return vcBe;
+    }
+
+    /** Validate a player-supplied profile id to prevent path traversal. */
+    private static boolean isValidProfileId(String profId) {
+        if (profId == null || profId.isEmpty()) return false;
+        if (profId.contains("..") || profId.contains("/") || profId.contains("\\") || profId.contains(":")) {
+            return false;
+        }
+        return profId.matches("[A-Za-z0-9_\\-]+");
+    }
+
     private static void scheduleReload(ServerPlayer player) {
         MinecraftServer server = player.server;
         long now = System.currentTimeMillis();
@@ -170,8 +200,8 @@ public class ModMessages {
             Player player = ctx.player();
             if (!(player instanceof ServerPlayer serverPlayer)) return;
 
-            BlockEntity be = serverPlayer.level().getBlockEntity(packet.pos);
-            if (!(be instanceof VisualCraftingBlockEntity vcBe)) return;
+            VisualCraftingBlockEntity vcBe = getAccessibleTable(serverPlayer, packet.pos);
+            if (vcBe == null) return;
 
             vcBe.addRecipe(new VisualCraftingBlockEntity.SavedRecipe(
                     packet.shaped, packet.result, packet.ingredients));
@@ -187,7 +217,7 @@ public class ModMessages {
                 }
             }
 
-            RecipeRegistrar.updateTableRecipes(packet.pos, vcBe.getRecipes(), vcBe.getFormat());
+            RecipeRegistrar.updateTableRecipes(serverPlayer.getUUID(), packet.pos, vcBe.getRecipes(), vcBe.getFormat());
             RecipeRegistrar.regenerateScript(vcBe.getRecipes(), vcBe.getTier(), vcBe.getFormat());
             syncToWatching(serverPlayer.level(), packet.pos, vcBe);
 
@@ -203,11 +233,11 @@ public class ModMessages {
             Player player = ctx.player();
             if (!(player instanceof ServerPlayer serverPlayer)) return;
 
-            BlockEntity be = serverPlayer.level().getBlockEntity(packet.pos);
-            if (!(be instanceof VisualCraftingBlockEntity vcBe)) return;
+            VisualCraftingBlockEntity vcBe = getAccessibleTable(serverPlayer, packet.pos);
+            if (vcBe == null) return;
 
             vcBe.removeRecipe(packet.index);
-            RecipeRegistrar.updateTableRecipes(packet.pos, vcBe.getRecipes(), vcBe.getFormat());
+            RecipeRegistrar.updateTableRecipes(serverPlayer.getUUID(), packet.pos, vcBe.getRecipes(), vcBe.getFormat());
             syncToWatching(serverPlayer.level(), packet.pos, vcBe);
 
             serverPlayer.displayClientMessage(Component.literal("已删除已保存配方"), false);
@@ -220,8 +250,8 @@ public class ModMessages {
             Player player = ctx.player();
             if (!(player instanceof ServerPlayer serverPlayer)) return;
 
-            BlockEntity be = serverPlayer.level().getBlockEntity(packet.pos);
-            if (!(be instanceof VisualCraftingBlockEntity vcBe)) return;
+            VisualCraftingBlockEntity vcBe = getAccessibleTable(serverPlayer, packet.pos);
+            if (vcBe == null) return;
 
             String outputId = BuiltInRegistries.ITEM.getKey(packet.output.getItem()).toString();
             List<VisualCraftingBlockEntity.SavedRecipe> recipes = vcBe.getRecipes();
@@ -234,7 +264,7 @@ public class ModMessages {
                 }
             }
 
-            RecipeRegistrar.updateTableRecipes(packet.pos, vcBe.getRecipes(), vcBe.getFormat());
+            RecipeRegistrar.updateTableRecipes(serverPlayer.getUUID(), packet.pos, vcBe.getRecipes(), vcBe.getFormat());
             RecipeRegistrar.banOutput(outputId, vcBe.getRecipes(), vcBe.getTier(), vcBe.getFormat());
             syncToWatching(serverPlayer.level(), packet.pos, vcBe);
 
@@ -259,8 +289,8 @@ public class ModMessages {
         ctx.enqueueWork(() -> {
             Player player = ctx.player();
             if (!(player instanceof ServerPlayer serverPlayer)) return;
-            BlockEntity be = serverPlayer.level().getBlockEntity(packet.pos);
-            if (be instanceof VisualCraftingBlockEntity vcBe) {
+            VisualCraftingBlockEntity vcBe = getAccessibleTable(serverPlayer, packet.pos);
+            if (vcBe != null) {
                 vcBe.setTier(packet.tier);
             }
         });
@@ -270,11 +300,11 @@ public class ModMessages {
         ctx.enqueueWork(() -> {
             Player player = ctx.player();
             if (!(player instanceof ServerPlayer serverPlayer)) return;
-            BlockEntity be = serverPlayer.level().getBlockEntity(packet.pos);
-            if (!(be instanceof VisualCraftingBlockEntity vcBe)) return;
+            VisualCraftingBlockEntity vcBe = getAccessibleTable(serverPlayer, packet.pos);
+            if (vcBe == null) return;
 
             vcBe.setFormat(packet.format);
-            RecipeRegistrar.updateTableRecipes(packet.pos, vcBe.getRecipes(), vcBe.getFormat());
+            RecipeRegistrar.updateTableRecipes(serverPlayer.getUUID(), packet.pos, vcBe.getRecipes(), vcBe.getFormat());
             RecipeRegistrar.regenerateScript(vcBe.getRecipes(), vcBe.getTier(), vcBe.getFormat());
 
             serverPlayer.displayClientMessage(Component.literal(
@@ -286,8 +316,8 @@ public class ModMessages {
         ctx.enqueueWork(() -> {
             Player player = ctx.player();
             if (!(player instanceof ServerPlayer serverPlayer)) return;
-            BlockEntity be = serverPlayer.level().getBlockEntity(packet.pos);
-            if (be instanceof VisualCraftingBlockEntity vcBe) {
+            VisualCraftingBlockEntity vcBe = getAccessibleTable(serverPlayer, packet.pos);
+            if (vcBe != null) {
                 vcBe.setMode(packet.mode);
             }
         });
@@ -300,8 +330,8 @@ public class ModMessages {
             Player player = ctx.player();
             if (!(player instanceof ServerPlayer serverPlayer)) return;
 
-            BlockEntity be = serverPlayer.level().getBlockEntity(packet.pos);
-            if (!(be instanceof VisualCraftingBlockEntity vcBe)) return;
+            VisualCraftingBlockEntity vcBe = getAccessibleTable(serverPlayer, packet.pos);
+            if (vcBe == null) return;
 
             vcBe.addInfusingRecipe(new VisualCraftingBlockEntity.InfusingRecipe(
                     packet.inputA, packet.inputB, packet.output, packet.infusionAmount));
@@ -317,7 +347,7 @@ public class ModMessages {
                 }
             }
 
-            RecipeRegistrar.updateInfusingTableRecipes(packet.pos, vcBe.getInfusingRecipes(), vcBe.getFormat());
+            RecipeRegistrar.updateInfusingTableRecipes(serverPlayer.getUUID(), packet.pos, vcBe.getInfusingRecipes(), vcBe.getFormat());
             RecipeRegistrar.regenerateInfusingScript(vcBe.getInfusingRecipes(), vcBe.getFormat());
             syncInfusingToWatching(serverPlayer.level(), packet.pos, vcBe);
 
@@ -332,11 +362,11 @@ public class ModMessages {
             Player player = ctx.player();
             if (!(player instanceof ServerPlayer serverPlayer)) return;
 
-            BlockEntity be = serverPlayer.level().getBlockEntity(packet.pos);
-            if (!(be instanceof VisualCraftingBlockEntity vcBe)) return;
+            VisualCraftingBlockEntity vcBe = getAccessibleTable(serverPlayer, packet.pos);
+            if (vcBe == null) return;
 
             vcBe.removeInfusingRecipe(packet.index);
-            RecipeRegistrar.updateInfusingTableRecipes(packet.pos, vcBe.getInfusingRecipes(), vcBe.getFormat());
+            RecipeRegistrar.updateInfusingTableRecipes(serverPlayer.getUUID(), packet.pos, vcBe.getInfusingRecipes(), vcBe.getFormat());
             syncInfusingToWatching(serverPlayer.level(), packet.pos, vcBe);
 
             serverPlayer.displayClientMessage(Component.literal("已删除已保存灌注配方"), false);
@@ -349,8 +379,8 @@ public class ModMessages {
             Player player = ctx.player();
             if (!(player instanceof ServerPlayer serverPlayer)) return;
 
-            BlockEntity be = serverPlayer.level().getBlockEntity(packet.pos);
-            if (!(be instanceof VisualCraftingBlockEntity vcBe)) return;
+            VisualCraftingBlockEntity vcBe = getAccessibleTable(serverPlayer, packet.pos);
+            if (vcBe == null) return;
 
             String outputId = BuiltInRegistries.ITEM.getKey(packet.output.getItem()).toString();
 
@@ -367,7 +397,7 @@ public class ModMessages {
                 }
             }
 
-            RecipeRegistrar.updateInfusingTableRecipes(packet.pos, vcBe.getInfusingRecipes(), vcBe.getFormat());
+            RecipeRegistrar.updateInfusingTableRecipes(serverPlayer.getUUID(), packet.pos, vcBe.getInfusingRecipes(), vcBe.getFormat());
             RecipeRegistrar.banInfusingOutput(outputId, vcBe.getInfusingRecipes(), vcBe.getFormat());
             syncInfusingToWatching(serverPlayer.level(), packet.pos, vcBe);
 
@@ -549,6 +579,10 @@ public class ModMessages {
         ctx.enqueueWork(() -> {
             Player player = ctx.player();
             if (!(player instanceof ServerPlayer serverPlayer)) return;
+            if (!isValidProfileId(packet.profId)) {
+                System.err.println("[VisualCrafting] Rejected trade save with invalid profile id: " + packet.profId);
+                return;
+            }
 
             try {
                 File worldDir = serverPlayer.server.getWorldPath(LevelResource.ROOT).toFile();
@@ -588,14 +622,18 @@ public class ModMessages {
         ctx.enqueueWork(() -> {
             Player player = ctx.player();
             if (!(player instanceof ServerPlayer serverPlayer)) return;
+            String profId = packet.profId;
+            if (profId.contains(":")) {
+                profId = profId.substring(profId.indexOf(':') + 1);
+            }
+            if (!isValidProfileId(profId)) {
+                System.err.println("[VisualCrafting] Rejected trade delete with invalid profile id: " + packet.profId);
+                return;
+            }
 
             try {
                 File worldDir = serverPlayer.server.getWorldPath(LevelResource.ROOT).toFile();
-                String profDirName = packet.profId;
-                if (profDirName.contains(":")) {
-                    profDirName = profDirName.substring(profDirName.indexOf(':') + 1);
-                }
-                File profDir = new File(worldDir, profDirName);
+                File profDir = new File(worldDir, profId);
 
                 boolean deleted = false;
                 File[] tradeFiles = profDir.listFiles((d, name) -> name.endsWith(".json"));
@@ -606,7 +644,7 @@ public class ModMessages {
 
                 File vcScripts = new File(worldDir, "datapacks/visualcrafting");
                 // Also try to delete from visualcrafting datapack dir
-                File dpProfDir = new File(vcScripts, profDirName);
+                File dpProfDir = new File(vcScripts, profId);
                 File[] dpFiles = dpProfDir.listFiles((d, name) -> name.endsWith(".json"));
                 if (dpFiles != null && packet.tradeIndex >= 0 && packet.tradeIndex < dpFiles.length) {
                     Arrays.sort(dpFiles, Comparator.comparing(File::getName));

@@ -37,6 +37,7 @@ public class VisualCraftingBlock extends BaseEntityBlock {
         if (!level.isClientSide && player instanceof ServerPlayer serverPlayer) {
             BlockEntity blockEntity = level.getBlockEntity(pos);
             if (blockEntity instanceof VisualCraftingBlockEntity be) {
+                be.ensureOwner(serverPlayer.getUUID());
                 serverPlayer.openMenu(new SimpleMenuProvider(
                         (containerId, inventory, p) ->
                                 new com.visualcrafting.screen.VisualCraftingMenu(containerId, inventory, be),

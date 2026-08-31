@@ -9,7 +9,6 @@ import com.visualcrafting.item.FurnaceCardItem;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.AbstractFurnaceBlockEntity;
@@ -19,63 +18,30 @@ import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 
 /**
- * Handles furnace card XP accumulation and fluid routing.
+ * Handles furnace card XP accumulation.
  * Periodically scans ME Interfaces with furnace cards installed,
- * captures XP from adjacent furnaces, stores in card,
- * and routes overflow to ME fluid storage.
- * Player notifications are handled by AEBaseScreenMixin when the interface GUI is opened.
+ * captures XP from adjacent furnaces and stores it in the card.
+ * Overflow XP is injected into the AE network as experience fluid;
+ * if injection is not possible, the overflow is discarded.
  */
 @EventBusSubscriber(modid = "visualcrafting")
 public class FurnaceCardExpHandler {
 
     private static int tickCounter;
     private static final int SCAN_INTERVAL = 40;
-    private static final Map<BlockPos, Component> pendingWarnings = new HashMap<>();
 
     @SubscribeEvent
     public static void onServerTick(ServerTickEvent.Post event) {
         tickCounter++;
         if (tickCounter % SCAN_INTERVAL != 0) return;
 
-        retryPendingWarnings(event.getServer());
-
         for (ServerLevel level : event.getServer().getAllLevels()) {
             processLevel(level);
         }
-    }
-
-    private static void retryPendingWarnings(net.minecraft.server.MinecraftServer server) {
-        if (pendingWarnings.isEmpty()) return;
-        Iterator<Map.Entry<BlockPos, Component>> it = pendingWarnings.entrySet().iterator();
-        while (it.hasNext()) {
-            Map.Entry<BlockPos, Component> entry = it.next();
-            BlockPos pos = entry.getKey();
-            for (ServerLevel level : server.getAllLevels()) {
-                BlockEntity be = level.getBlockEntity(pos);
-                if (!(be instanceof InterfaceBlockEntity iface) || iface.isRemoved()) continue;
-                IGrid grid = getGrid(iface);
-                if (grid == null) continue;
-                ServerPlayer holder = findWirelessTerminalHolder(grid, level);
-                if (holder != null) {
-                    holder.displayClientMessage(entry.getValue(), false);
-                    it.remove();
-                }
-                break;
-            }
-        }
-    }
-
-    private static IGrid getGrid(InterfaceBlockEntity iface) {
-        try {
-            var node = iface.getMainNode();
-            return node != null ? node.getGrid() : null;
-        } catch (Exception ignored) { return null; }
     }
 
     private static void processLevel(ServerLevel level) {
@@ -96,7 +62,7 @@ public class FurnaceCardExpHandler {
 
             long remaining = storeXpToUpgrades(upgrades, totalXp);
             if (remaining > 0) {
-                tryRouteToNetwork(iface, remaining);
+                discardOverflow(iface, remaining);
             }
         }
     }
@@ -207,90 +173,35 @@ public class FurnaceCardExpHandler {
         } catch (Exception ignored) {}
     }
 
-    private static void tryRouteToNetwork(InterfaceBlockEntity iface, long milliXp) {
-        try {
-            appeng.api.networking.IManagedGridNode node = iface.getMainNode();
-            if (node == null) { warnAndDiscard(iface, milliXp, null); return; }
-            IGrid grid = node.getGrid();
-            if (grid == null) { warnAndDiscard(iface, milliXp, null); return; }
-            IActionSource source = IActionSource.ofMachine(iface);
-            boolean success = ExperienceFluidHelper.insertExpFluidToNetwork(grid, source, milliXp);
-            if (!success) {
-                warnAndDiscard(iface, milliXp, grid);
-            }
-        } catch (Exception e) {
-            warnAndDiscard(iface, milliXp, null);
-        }
-    }
+    private static void discardOverflow(InterfaceBlockEntity iface, long milliXp) {
+        // 优先将溢出经验注入 AE 网络流体；无法注入时才丢弃。
+        if (tryInjectToNetwork(iface, milliXp)) return;
 
-    /**
-     * Notify the holder of a wireless terminal bound to this network that
-     * overflow XP was discarded because fluid injection into the AE network failed.
-     * If no holder is found, silently discard.
-     * If sending fails, queue for retry on next tick cycle.
-     */
-    private static void warnAndDiscard(InterfaceBlockEntity iface, long milliXp, IGrid grid) {
         Level level = iface.getLevel();
         if (!(level instanceof ServerLevel serverLevel)) return;
-        long mB = milliXp / 50L;
-        Component msg = Component.literal(
-                "[VC] 经验流体注入失败, " + mB + " mB 溢出经验已销毁 ("
-                + iface.getBlockPos().toShortString() + ")");
-
-        if (grid == null) return; // Silent if no network
-
-        ServerPlayer holder = findWirelessTerminalHolder(grid, serverLevel);
-        if (holder != null) {
-            try {
-                holder.displayClientMessage(msg, false);
-            } catch (Exception e) {
-                // Send failed, queue for retry
-                pendingWarnings.put(iface.getBlockPos(), msg);
-            }
-            return;
-        }
-        // No wireless terminal holder — silent discard
+        long points = milliXp / 1000L;
+        if (points <= 0L) return;
+        serverLevel.getServer().getPlayerList().getPlayers().forEach(p ->
+                p.displayClientMessage(
+                        Component.literal("[VC] 熔炉经验溢出 " + points + " 点，无法注入 AE 网络，已丢弃 (" + iface.getBlockPos().toShortString() + ")"),
+                        false));
     }
 
     /**
-     * Finds the first online player whose inventory contains an AE2 wireless
-     * terminal bound to the given grid.
+     * Try to inject overflow XP into the AE network as experience fluid.
+     * Returns true if at least part of the XP was injected successfully.
      */
-    private static ServerPlayer findWirelessTerminalHolder(IGrid grid, ServerLevel serverLevel) {
-        for (ServerPlayer player : serverLevel.getServer().getPlayerList().getPlayers()) {
-            if (holdsWirelessTerminalForGrid(player, grid)) return player;
+    private static boolean tryInjectToNetwork(InterfaceBlockEntity iface, long milliXp) {
+        try {
+            appeng.api.networking.IManagedGridNode node = iface.getMainNode();
+            if (node == null) return false;
+            IGrid grid = node.getGrid();
+            if (grid == null) return false;
+            IActionSource source = IActionSource.ofMachine(iface);
+            return ExperienceFluidHelper.insertExpFluidToNetwork(grid, source, milliXp);
+        } catch (Exception ignored) {
+            return false;
         }
-        return null;
-    }
-
-    private static boolean holdsWirelessTerminalForGrid(ServerPlayer player, IGrid grid) {
-        for (ItemStack stack : player.getInventory().items) {
-            if (isWirelessTerminalBoundToGrid(stack, grid)) return true;
-        }
-        for (ItemStack stack : player.getInventory().offhand) {
-            if (isWirelessTerminalBoundToGrid(stack, grid)) return true;
-        }
-        return false;
-    }
-
-    private static boolean isWirelessTerminalBoundToGrid(ItemStack stack, IGrid grid) {
-        if (stack.isEmpty()) return false;
-        String cls = stack.getItem().getClass().getName();
-        boolean isWirelessTerminal = cls.equals("appeng.items.tools.powered.WirelessTerminalItem")
-                || cls.equals("appeng.items.tools.powered.WirelessCraftingTerminalItem");
-        if (!isWirelessTerminal) {
-            for (Class<?> c = stack.getItem().getClass(); c != Object.class; c = c.getSuperclass()) {
-                String parent = c.getName();
-                if (parent.equals("appeng.items.tools.powered.WirelessTerminalItem")
-                        || parent.equals("appeng.items.tools.powered.WirelessCraftingTerminalItem")) {
-                    isWirelessTerminal = true;
-                    break;
-                }
-            }
-        }
-        if (!isWirelessTerminal) return false;
-
-        return true;
     }
 
     /**
@@ -315,7 +226,7 @@ public class FurnaceCardExpHandler {
         if (totalXp > 0) {
             long remaining = storeXpToUpgrades(upgrades, totalXp);
             if (remaining > 0) {
-                tryRouteToNetwork(iface, remaining);
+                discardOverflow(iface, remaining);
             }
         }
     }

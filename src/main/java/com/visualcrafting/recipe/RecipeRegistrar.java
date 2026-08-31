@@ -22,18 +22,19 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 public class RecipeRegistrar {
     private static final Logger LOGGER = LoggerFactory.getLogger(RecipeRegistrar.class);
 
-    private static final Map<BlockPos, List<VisualCraftingBlockEntity.SavedRecipe>> ALL_TABLE_RECIPES =
+    private static final Map<String, List<VisualCraftingBlockEntity.SavedRecipe>> ALL_TABLE_RECIPES =
             new ConcurrentHashMap<>();
-    private static final Map<BlockPos, Integer> TABLE_FORMATS = new ConcurrentHashMap<>();
-    private static final Map<BlockPos, List<VisualCraftingBlockEntity.InfusingRecipe>> ALL_INFUSING_TABLE_RECIPES =
+    private static final Map<String, Integer> TABLE_FORMATS = new ConcurrentHashMap<>();
+    private static final Map<String, List<VisualCraftingBlockEntity.InfusingRecipe>> ALL_INFUSING_TABLE_RECIPES =
             new ConcurrentHashMap<>();
-    private static final Map<BlockPos, Integer> INFUSING_TABLE_FORMATS = new ConcurrentHashMap<>();
+    private static final Map<String, Integer> INFUSING_TABLE_FORMATS = new ConcurrentHashMap<>();
 
     private static final Path KUBEJS_OUTPUTS = Path.of("kubejs/server_scripts/visualcrafting_outputs.txt");
     private static final Path KUBEJS_BANNED = Path.of("kubejs/server_scripts/visualcrafting_banned.txt");
@@ -48,23 +49,54 @@ public class RecipeRegistrar {
 
     // ---- Public update methods ----
 
-    public static void updateTableRecipes(BlockPos pos, List<VisualCraftingBlockEntity.SavedRecipe> recipes,
-                                          int format) {
-        ALL_TABLE_RECIPES.put(pos, new CopyOnWriteArrayList<>(recipes));
-        TABLE_FORMATS.put(pos, format);
+    public static void updateTableRecipes(UUID playerId, BlockPos pos,
+                                          List<VisualCraftingBlockEntity.SavedRecipe> recipes, int format) {
+        String key = tableKey(playerId, pos);
+        ALL_TABLE_RECIPES.put(key, new CopyOnWriteArrayList<>(recipes));
+        TABLE_FORMATS.put(key, format);
     }
 
-    public static void updateInfusingTableRecipes(BlockPos pos,
-                                                  List<VisualCraftingBlockEntity.InfusingRecipe> recipes, int format) {
-        ALL_INFUSING_TABLE_RECIPES.put(pos, new CopyOnWriteArrayList<>(recipes));
-        INFUSING_TABLE_FORMATS.put(pos, format);
+    public static void updateInfusingTableRecipes(UUID playerId, BlockPos pos,
+                                                  List<VisualCraftingBlockEntity.InfusingRecipe> recipes,
+                                                  int format) {
+        String key = tableKey(playerId, pos);
+        ALL_INFUSING_TABLE_RECIPES.put(key, new CopyOnWriteArrayList<>(recipes));
+        INFUSING_TABLE_FORMATS.put(key, format);
+    }
+
+    /**
+     * Remove a specific player's entries for a table position.
+     * Called when a table is broken.
+     */
+    public static void removeTable(UUID playerId, BlockPos pos) {
+        String key = tableKey(playerId, pos);
+        ALL_TABLE_RECIPES.remove(key);
+        TABLE_FORMATS.remove(key);
+        ALL_INFUSING_TABLE_RECIPES.remove(key);
+        INFUSING_TABLE_FORMATS.remove(key);
+    }
+
+    /**
+     * Remove every player's entries for a table position.
+     * Fallback used when the table owner is unknown (legacy blocks).
+     */
+    public static void removeTableByPos(BlockPos pos) {
+        String suffix = "_" + pos;
+        ALL_TABLE_RECIPES.keySet().removeIf(key -> key.endsWith(suffix));
+        TABLE_FORMATS.keySet().removeIf(key -> key.endsWith(suffix));
+        ALL_INFUSING_TABLE_RECIPES.keySet().removeIf(key -> key.endsWith(suffix));
+        INFUSING_TABLE_FORMATS.keySet().removeIf(key -> key.endsWith(suffix));
+    }
+
+    private static String tableKey(UUID playerId, BlockPos pos) {
+        return playerId + "_" + pos;
     }
 
     // ---- Collect all recipes for given format ----
 
     private static List<VisualCraftingBlockEntity.SavedRecipe> collectAllRecipes(int format) {
         List<VisualCraftingBlockEntity.SavedRecipe> all = new ArrayList<>();
-        for (Map.Entry<BlockPos, List<VisualCraftingBlockEntity.SavedRecipe>> entry : ALL_TABLE_RECIPES.entrySet()) {
+        for (Map.Entry<String, List<VisualCraftingBlockEntity.SavedRecipe>> entry : ALL_TABLE_RECIPES.entrySet()) {
             Integer fmt = TABLE_FORMATS.get(entry.getKey());
             if (fmt != null && fmt == format) {
                 all.addAll(entry.getValue());
@@ -75,7 +107,7 @@ public class RecipeRegistrar {
 
     private static List<VisualCraftingBlockEntity.InfusingRecipe> collectAllInfusingRecipes(int format) {
         List<VisualCraftingBlockEntity.InfusingRecipe> all = new ArrayList<>();
-        for (Map.Entry<BlockPos, List<VisualCraftingBlockEntity.InfusingRecipe>> entry :
+        for (Map.Entry<String, List<VisualCraftingBlockEntity.InfusingRecipe>> entry :
                 ALL_INFUSING_TABLE_RECIPES.entrySet()) {
             Integer fmt = INFUSING_TABLE_FORMATS.get(entry.getKey());
             if (fmt != null && fmt == format) {

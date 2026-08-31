@@ -15,7 +15,6 @@ import appeng.blockentity.misc.InterfaceBlockEntity;
 import appeng.helpers.InterfaceLogic;
 import appeng.items.materials.UpgradeCardItem;
 import appeng.util.ConfigInventory;
-import com.visualcrafting.fluid.ExperienceFluidHelper;
 import it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
@@ -505,19 +504,18 @@ public class FurnaceCardItem extends UpgradeCardItem {
                 } else {
                     long overflow = newStored - maxExp;
                     setStoredExpMilli(cardStack, maxExp);
-                    boolean networkOk = ExperienceFluidHelper.insertExpFluidToNetwork(grid, actionSource, overflow);
-                    if (!networkOk && tick - cd.lastExpWarningTick >= 100L) {
+                    if (tick - cd.lastExpWarningTick >= 100L) {
                         cd.lastExpWarningTick = tick;
-                        long overflowMB = overflow / 50L;
+                        long overflowPoints = overflow / 1000L;
                         String msg = String.format(
-                                "\u00a7e[VisualCrafting] \u00a7c\u7194\u70bc\u5361\u7ecf\u9a8c\u6ea2\u51fa %d mB\uff0c\u65e0\u6cd5\u5b58\u5165AE\u7f51\u7edc\u3002\u53ef\u80fd\u539f\u56e0\uff1a\u7f51\u7edc\u65e0\u6d41\u4f53\u5b58\u50a8\u5355\u5143\u3001\u5b58\u50a8\u5df2\u6ee1\u3001\u672a\u8fde\u63a5\u6d41\u4f53\u6a21\u7ec4",
-                                overflowMB);
+                                "\u00a7e[VisualCrafting] \u00a7c\u7194\u70bc\u5361\u7ecf\u9a8c\u6ea2\u51fa %d \u70b9\uff0c\u5df2\u4e22\u5f03\u3002",
+                                overflowPoints);
                         level.getServer().getPlayerList().getPlayers().forEach(p ->
                                 p.displayClientMessage(Component.literal(msg), false));
                     }
                     if (tick % 200L == 0L) {
-                        LOGGER.debug("[VC:FurnaceCard] tickInterface pos={} exp +{} -> card full ({}/{}) overflow={} network={}",
-                                pos, expMilli, maxExp, maxExp, overflow, networkOk ? "OK" : "DISCARDED");
+                        LOGGER.debug("[VC:FurnaceCard] tickInterface pos={} exp +{} -> card full ({}/{}) overflow={} DISCARDED",
+                                pos, expMilli, maxExp, maxExp, overflow);
                     }
                 }
                 upgrades.setItemDirect(bestSlot, cardStack.copy());
