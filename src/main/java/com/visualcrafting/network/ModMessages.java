@@ -13,6 +13,7 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
 import net.minecraft.core.Registry;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.RegistryFriendlyByteBuf;
@@ -25,7 +26,9 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.component.CustomData;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -42,6 +45,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class ModMessages {
 
@@ -85,9 +89,9 @@ public class ModMessages {
     public static final ResourceLocation DELETE_TRADE_RESPONSE_ID =
             ResourceLocation.fromNamespaceAndPath("visualcrafting", "delete_trade_response");
 
-    private static long lastReloadTime = 0L;
-    private static final long RELOAD_DEBOUNCE_MS = 3000L;
     private static DimensionBiomesData cachedDimBiomesData;
+
+    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
 
     // ===== Registration =====
 
@@ -134,7 +138,7 @@ public class ModMessages {
     // ===== Utility =====
 
     /** Maximum interaction distance (blocks) for operating a visual crafting table. */
-    private static final int MAX_INTERACTION_DISTANCE = 64;
+    private static final int MAX_INTERACTION_DISTANCE = 8;
 
     /**
      * Validate that the packet's block position refers to a visual crafting table
@@ -149,8 +153,19 @@ public class ModMessages {
         if (!(serverLevel.getBlockEntity(pos) instanceof VisualCraftingBlockEntity vcBe)) return null;
         if (vcBe.isRemoved()) return null;
         double distSqr = player.blockPosition().distSqr(pos);
-        if (distSqr > (double) MAX_INTERACTION_DISTANCE * MAX_INTERACTION_DISTANCE) return null;
+        if (distSqr > (double) MAX_INTERACTION_DISTANCE * MAX_INTERACTION_DISTANCE) {
+            System.err.println("[VisualCrafting] Rejected packet: table out of range at " + pos);
+            return null;
+        }
+        // 归属校验：已有主人的工作台只允许主人操作，防止越权读写他人配方
+        UUID owner = vcBe.getOwnerId();
+        if (owner != null && !owner.equals(player.getUUID())) {
+            System.err.println("[VisualCrafting] Rejected packet: table at " + pos
+                    + " belongs to " + owner + ", sender=" + player.getUUID());
+            return null;
+        }
         vcBe.ensureOwner(player.getUUID());
+        RecipeRegistrar.setPlayerName(player.getUUID(), player.getGameProfile().getName());
         return vcBe;
     }
 
@@ -163,14 +178,206 @@ public class ModMessages {
         return profId.matches("[A-Za-z0-9_\\-]+");
     }
 
-    private static void scheduleReload(ServerPlayer player) {
-        MinecraftServer server = player.server;
-        long now = System.currentTimeMillis();
-        if (now - lastReloadTime >= RELOAD_DEBOUNCE_MS) {
-            lastReloadTime = now;
-            server.getCommands().performPrefixedCommand(
-                    player.createCommandSourceStack().withSuppressedOutput(), "kubejs reload");
+    /** 兼容 GUI 传来的 "命名空间:id" 形式：统一剥掉命名空间，避免同一档案被写成两种目录。 */
+    private static String normalizeProfileId(String profId) {
+        if (profId == null) return null;
+        int sep = profId.indexOf(':');
+        return sep >= 0 ? profId.substring(sep + 1) : profId;
+    }
+
+    /** 交易文件名（纯数字）转编号；非数字文件名排到末尾。 */
+    private static int tradeFileIndex(File f) {
+        String base = f.getName();
+        if (base.endsWith(".json")) base = base.substring(0, base.length() - ".json".length());
+        try {
+            return Integer.parseInt(base);
+        } catch (NumberFormatException e) {
+            return Integer.MAX_VALUE;
         }
+    }
+
+    /**
+     * 将玩家配方编辑写入暂存目录（pending），供 MergeManager 磁盘合并。
+     * 文件名规则：{玩家UUID}_visualcrafting_{产出物归属mod}.json
+     * 写失败仅打印日志，不中断主流程。
+     */
+    /** 合并/数据包通道保留备查：当前所有编辑动作统一走 RecipeRegistrar 脚本输出，未再调用。 */
+    @SuppressWarnings("unused")
+    private static void writePending(ServerPlayer player, String recipeId, JsonObject content) {
+        try {
+            Path pendingDir = player.server.getWorldPath(LevelResource.ROOT)
+                    .resolve("visualcrafting").resolve("pending");
+            Files.createDirectories(pendingDir);
+            String mod = recipeId.contains(":") ? recipeId.split(":", 2)[0] : "minecraft";
+            // 文件名带上配方 id：同一玩家同一 mod 的不同配方不再互相覆盖
+            String safeRecipe = recipeId.replaceAll("[^A-Za-z0-9._-]", "_");
+            if (safeRecipe.length() > 80) safeRecipe = safeRecipe.substring(0, 80);
+            String fileName = player.getUUID() + "_visualcrafting_" + mod + "_" + safeRecipe + ".json";
+            JsonObject root = new JsonObject();
+            root.addProperty("player", player.getUUID().toString());
+            root.addProperty("recipeId", recipeId);
+            root.addProperty("timestamp", System.currentTimeMillis());
+            root.add("content", content);
+            Files.writeString(pendingDir.resolve(fileName), GSON.toJson(root), StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            System.err.println("[VisualCrafting] 写入暂存配方失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 构建合成配方 JSON（数据包格式），供 writePending 写入 content。
+     * shaped 且 ingredients 为完美方阵（side>=3）时生成 crafting_shaped，
+     * 否则生成 crafting_shapeless；pattern/key 算法与 RecipeRegistrar.generateShaped 一致。
+     */
+    private static JsonObject buildRecipeJson(VisualCraftingBlockEntity.SavedRecipe r, boolean shaped,
+                                              boolean saveNbt, net.minecraft.core.RegistryAccess registries) {
+        String outputId = BuiltInRegistries.ITEM.getKey(r.result.getItem()).toString();
+        int count = r.result.getCount();
+        JsonObject root = new JsonObject();
+
+        int side = (int) Math.sqrt(r.ingredients.size());
+        boolean perfectGrid = side * side == r.ingredients.size() && side >= 3;
+
+        if (shaped && perfectGrid) {
+            root.addProperty("type", "minecraft:crafting_shaped");
+
+            int minRow = side, maxRow = -1, minCol = side, maxCol = -1;
+            for (int rr = 0; rr < side; rr++) {
+                for (int cc = 0; cc < side; cc++) {
+                    int idx = rr * side + cc;
+                    if (idx >= r.ingredients.size() || r.ingredients.get(idx).isEmpty()) continue;
+                    minRow = Math.min(minRow, rr);
+                    maxRow = Math.max(maxRow, rr);
+                    minCol = Math.min(minCol, cc);
+                    maxCol = Math.max(maxCol, cc);
+                }
+            }
+
+            if (minRow > maxRow) {
+                // 全空网格 → 退化为 shapeless（正常流程不会出现）
+                root.addProperty("type", "minecraft:crafting_shapeless");
+                JsonArray ingredients = new JsonArray();
+                for (ItemStack s : r.ingredients) {
+                    if (!s.isEmpty()) {
+                        JsonObject itemObj = new JsonObject();
+                        itemObj.addProperty("item", BuiltInRegistries.ITEM.getKey(s.getItem()).toString());
+                        ingredients.add(itemObj);
+                    }
+                }
+                root.add("ingredients", ingredients);
+            } else {
+                JsonArray pattern = new JsonArray();
+                LinkedHashMap<String, String> keyMap = new LinkedHashMap<>();
+                char nextChar = 'A';
+                for (int rr = minRow; rr <= maxRow; rr++) {
+                    StringBuilder rowStr = new StringBuilder();
+                    for (int cc = minCol; cc <= maxCol; cc++) {
+                        int idx = rr * side + cc;
+                        if (idx < r.ingredients.size() && !r.ingredients.get(idx).isEmpty()) {
+                            String itemId = BuiltInRegistries.ITEM.getKey(r.ingredients.get(idx).getItem()).toString();
+                            String key = null;
+                            for (Map.Entry<String, String> e : keyMap.entrySet()) {
+                                if (e.getValue().equals(itemId)) {
+                                    key = e.getKey();
+                                    break;
+                                }
+                            }
+                            if (key == null) {
+                                key = String.valueOf(nextChar++);
+                                keyMap.put(key, itemId);
+                            }
+                            rowStr.append(key);
+                        } else {
+                            rowStr.append(' ');
+                        }
+                    }
+                    pattern.add(rowStr.toString());
+                }
+                root.add("pattern", pattern);
+
+                JsonObject keyObj = new JsonObject();
+                for (Map.Entry<String, String> e : keyMap.entrySet()) {
+                    JsonObject itemObj = new JsonObject();
+                    itemObj.addProperty("item", e.getValue());
+                    keyObj.add(e.getKey(), itemObj);
+                }
+                root.add("key", keyObj);
+            }
+        } else {
+            root.addProperty("type", "minecraft:crafting_shapeless");
+            JsonArray ingredients = new JsonArray();
+            for (ItemStack s : r.ingredients) {
+                if (!s.isEmpty()) {
+                    JsonObject itemObj = new JsonObject();
+                    itemObj.addProperty("item", BuiltInRegistries.ITEM.getKey(s.getItem()).toString());
+                    ingredients.add(itemObj);
+                }
+            }
+            root.add("ingredients", ingredients);
+        }
+
+        JsonObject result = new JsonObject();
+        if (saveNbt && registries != null) {
+            try {
+                var ops = net.minecraft.resources.RegistryOps.create(
+                        com.mojang.serialization.JsonOps.INSTANCE, registries);
+                var encoded = ItemStack.CODEC.encodeStart(ops, r.result);
+                if (encoded.result().isPresent() && encoded.result().get() instanceof JsonObject encodedObj) {
+                    root.add("result", encodedObj);
+                    return root;
+                }
+            } catch (Throwable ignored) {
+                // 编码失败时回退到仅 id/count
+            }
+        }
+        result.addProperty("id", outputId);
+        result.addProperty("count", count);
+        root.add("result", result);
+        return root;
+    }
+
+    /**
+     * 构建灌注配方 JSON（mekanism:metallurgic_infusing），供 writePending 写入 content。
+     * inputA 优先取 CUSTOM_DATA 的 chemicalId，空则用物品 ID（与 RecipeRegistrar 一致）；
+     * inputB 为空用 minecraft:air。
+     */
+    private static JsonObject buildInfusingRecipeJson(VisualCraftingBlockEntity.InfusingRecipe r) {
+        String inputAStr;
+        CustomData customData = r.inputA.get(DataComponents.CUSTOM_DATA);
+        if (customData != null) {
+            CompoundTag tag = customData.copyTag();
+            if (tag != null && !tag.isEmpty()) {
+                inputAStr = tag.getString("chemicalId");
+            } else {
+                inputAStr = "";
+            }
+        } else {
+            inputAStr = "";
+        }
+        if (inputAStr.isEmpty()) {
+            inputAStr = r.inputA.isEmpty() ? "minecraft:air"
+                    : BuiltInRegistries.ITEM.getKey(r.inputA.getItem()).toString();
+        }
+        String inputBStr = r.inputB.isEmpty() ? "minecraft:air"
+                : BuiltInRegistries.ITEM.getKey(r.inputB.getItem()).toString();
+        String outputId = BuiltInRegistries.ITEM.getKey(r.output.getItem()).toString();
+
+        JsonObject root = new JsonObject();
+        root.addProperty("type", "mekanism:metallurgic_infusing");
+
+        JsonObject chemicalInput = new JsonObject();
+        chemicalInput.addProperty("amount", r.infusionAmount);
+        chemicalInput.addProperty("chemical", inputAStr);
+        root.add("chemical_input", chemicalInput);
+
+        JsonObject itemInput = new JsonObject();
+        itemInput.addProperty("item", inputBStr);
+        root.add("item_input", itemInput);
+
+        JsonObject output = new JsonObject();
+        output.addProperty("id", outputId);
+        root.add("output", output);
+        return root;
     }
 
     private static void syncToWatching(Level level, BlockPos pos, VisualCraftingBlockEntity be) {
@@ -221,10 +428,11 @@ public class ModMessages {
             RecipeRegistrar.regenerateScript(vcBe.getRecipes(), vcBe.getTier(), vcBe.getFormat());
             syncToWatching(serverPlayer.level(), packet.pos, vcBe);
 
-            String type = packet.shaped ? "有序合成" : "无序合成";
-            serverPlayer.displayClientMessage(
-                    Component.literal(type + "已添加: " + packet.result.getHoverName().getString()), false);
-            scheduleReload(serverPlayer);
+            serverPlayer.displayClientMessage(Component.translatable(
+                    packet.shaped ? "gui.visualcrafting.chat.add_shaped" : "gui.visualcrafting.chat.add_shapeless",
+                    packet.result.getHoverName().getString()), false);
+            // 单一写盘通道：配方由 RecipeRegistrar 直接生成脚本，不再重复写 pending（避免数据包侧重复注册）
+            // 自动 reload 已移除：脚本已写入，需手动执行 /reload 后生效
         });
     }
 
@@ -240,8 +448,8 @@ public class ModMessages {
             RecipeRegistrar.updateTableRecipes(serverPlayer.getUUID(), packet.pos, vcBe.getRecipes(), vcBe.getFormat());
             syncToWatching(serverPlayer.level(), packet.pos, vcBe);
 
-            serverPlayer.displayClientMessage(Component.literal("已删除已保存配方"), false);
-            scheduleReload(serverPlayer);
+            serverPlayer.displayClientMessage(
+                    Component.translatable("gui.visualcrafting.chat.delete_saved_crafting"), false);
         });
     }
 
@@ -269,8 +477,7 @@ public class ModMessages {
             syncToWatching(serverPlayer.level(), packet.pos, vcBe);
 
             serverPlayer.displayClientMessage(
-                    Component.literal("已删除配方: " + packet.output.getHoverName().getString()), false);
-            scheduleReload(serverPlayer);
+                    Component.translatable("gui.visualcrafting.chat.delete_crafting", packet.output.getHoverName().getString()), false);
         });
     }
 
@@ -352,8 +559,8 @@ public class ModMessages {
             syncInfusingToWatching(serverPlayer.level(), packet.pos, vcBe);
 
             serverPlayer.displayClientMessage(
-                    Component.literal("灌注配方已添加: " + packet.output.getHoverName().getString()), false);
-            scheduleReload(serverPlayer);
+                    Component.translatable("gui.visualcrafting.chat.add_infusing", packet.output.getHoverName().getString()), false);
+
         });
     }
 
@@ -369,8 +576,8 @@ public class ModMessages {
             RecipeRegistrar.updateInfusingTableRecipes(serverPlayer.getUUID(), packet.pos, vcBe.getInfusingRecipes(), vcBe.getFormat());
             syncInfusingToWatching(serverPlayer.level(), packet.pos, vcBe);
 
-            serverPlayer.displayClientMessage(Component.literal("已删除已保存灌注配方"), false);
-            scheduleReload(serverPlayer);
+            serverPlayer.displayClientMessage(
+                    Component.translatable("gui.visualcrafting.chat.delete_saved_infusing"), false);
         });
     }
 
@@ -402,8 +609,7 @@ public class ModMessages {
             syncInfusingToWatching(serverPlayer.level(), packet.pos, vcBe);
 
             serverPlayer.displayClientMessage(
-                    Component.literal("已删除灌注配方: " + packet.output.getHoverName().getString()), false);
-            scheduleReload(serverPlayer);
+                    Component.translatable("gui.visualcrafting.chat.delete_infusing", packet.output.getHoverName().getString()), false);
         });
     }
 
@@ -569,7 +775,8 @@ public class ModMessages {
                     method.invoke(vcScreen,
                             packet.profNames, packet.profIds, packet.mgmtProfNames, packet.mgmtProfIds,
                             packet.mgmtTradeLabels, packet.mgmtTradeDisabled);
-                } catch (Exception ignored) {
+                } catch (Exception e) {
+                    System.err.println("[VisualCrafting] Client reflection handler failed: " + e.getClass().getSimpleName() + ": " + e.getMessage());
                 }
             }
         });
@@ -579,24 +786,38 @@ public class ModMessages {
         ctx.enqueueWork(() -> {
             Player player = ctx.player();
             if (!(player instanceof ServerPlayer serverPlayer)) return;
-            if (!isValidProfileId(packet.profId)) {
+            String profId = normalizeProfileId(packet.profId);
+            if (!isValidProfileId(profId)) {
                 System.err.println("[VisualCrafting] Rejected trade save with invalid profile id: " + packet.profId);
                 return;
             }
 
             try {
                 File worldDir = serverPlayer.server.getWorldPath(LevelResource.ROOT).toFile();
-                File vcDir = new File(worldDir, "visualcrafting");
-                File tradesDir = new File(vcDir, "trades");
-                File profDir = new File(tradesDir, packet.profId);
+                File tradesDir = new File(new File(worldDir, "visualcrafting"), "trades");
+                File profDir = new File(tradesDir, profId);
                 profDir.mkdirs();
 
+                // 序号取现有最大编号 +1：删除中间的条目后不会重号、不会覆盖既有交易
+                int nextIndex = 0;
                 File[] existing = profDir.listFiles((d, name) -> name.endsWith(".json"));
-                int nextIndex = (existing != null) ? existing.length : 0;
+                if (existing != null) {
+                    for (File f : existing) {
+                        String base = f.getName();
+                        if (base.endsWith(".json")) {
+                            base = base.substring(0, base.length() - ".json".length());
+                        }
+                        try {
+                            nextIndex = Math.max(nextIndex, Integer.parseInt(base) + 1);
+                        } catch (NumberFormatException ignored) {
+                            // 非数字文件名不参与编号
+                        }
+                    }
+                }
                 File tradeFile = new File(profDir, nextIndex + ".json");
                 Files.writeString(tradeFile.toPath(), packet.tradeJson, StandardCharsets.UTF_8);
 
-                scheduleReload(serverPlayer);
+                // 自动 reload 已移除：脚本已写入，需手动执行 /reload 后生效
                 PacketDistributor.sendToPlayer(serverPlayer, new SaveTradeResponsePacket());
             } catch (Exception e) {
                 System.err.println("[VisualCrafting] Failed to save trade: " + e.getMessage());
@@ -612,7 +833,8 @@ public class ModMessages {
                     java.lang.reflect.Method method = vcScreen.getClass()
                             .getDeclaredMethod("onSaveTradeResponse");
                     method.invoke(vcScreen);
-                } catch (Exception ignored) {
+                } catch (Exception e) {
+                    System.err.println("[VisualCrafting] Client reflection handler failed: " + e.getClass().getSimpleName() + ": " + e.getMessage());
                 }
             }
         });
@@ -622,10 +844,7 @@ public class ModMessages {
         ctx.enqueueWork(() -> {
             Player player = ctx.player();
             if (!(player instanceof ServerPlayer serverPlayer)) return;
-            String profId = packet.profId;
-            if (profId.contains(":")) {
-                profId = profId.substring(profId.indexOf(':') + 1);
-            }
+            String profId = normalizeProfileId(packet.profId);
             if (!isValidProfileId(profId)) {
                 System.err.println("[VisualCrafting] Rejected trade delete with invalid profile id: " + packet.profId);
                 return;
@@ -633,22 +852,25 @@ public class ModMessages {
 
             try {
                 File worldDir = serverPlayer.server.getWorldPath(LevelResource.ROOT).toFile();
-                File profDir = new File(worldDir, profId);
+                // 交易实际存放在 world/visualcrafting/trades/<profId>/（与保存路径一致）
+                File profDir = new File(new File(new File(worldDir, "visualcrafting"), "trades"), profId);
 
                 boolean deleted = false;
                 File[] tradeFiles = profDir.listFiles((d, name) -> name.endsWith(".json"));
-                if (tradeFiles != null && packet.tradeIndex >= 0 && packet.tradeIndex < tradeFiles.length) {
-                    Arrays.sort(tradeFiles, Comparator.comparing(File::getName));
-                    deleted = tradeFiles[packet.tradeIndex].delete();
+                if (tradeFiles != null && tradeFiles.length > 0) {
+                    // 按数字编号升序，与 GUI 列表顺序一致
+                    Arrays.sort(tradeFiles, Comparator.comparingInt(ModMessages::tradeFileIndex)
+                            .thenComparing(File::getName));
+                    if (packet.tradeIndex >= 0 && packet.tradeIndex < tradeFiles.length) {
+                        deleted = tradeFiles[packet.tradeIndex].delete();
+                    } else {
+                        System.err.println("[VisualCrafting] Trade delete index out of range: index="
+                                + packet.tradeIndex + ", files=" + tradeFiles.length + ", profId=" + profId);
+                    }
                 }
-
-                File vcScripts = new File(worldDir, "datapacks/visualcrafting");
-                // Also try to delete from visualcrafting datapack dir
-                File dpProfDir = new File(vcScripts, profId);
-                File[] dpFiles = dpProfDir.listFiles((d, name) -> name.endsWith(".json"));
-                if (dpFiles != null && packet.tradeIndex >= 0 && packet.tradeIndex < dpFiles.length) {
-                    Arrays.sort(dpFiles, Comparator.comparing(File::getName));
-                    dpFiles[packet.tradeIndex].delete();
+                if (!deleted) {
+                    System.err.println("[VisualCrafting] Trade delete removed nothing under "
+                            + profDir.getAbsolutePath() + " (index=" + packet.tradeIndex + ")");
                 }
 
                 PacketDistributor.sendToPlayer(serverPlayer, new DeleteTradeResponsePacket());
@@ -666,7 +888,8 @@ public class ModMessages {
                     java.lang.reflect.Method method = vcScreen.getClass()
                             .getDeclaredMethod("onDeleteTradeResponse");
                     method.invoke(vcScreen);
-                } catch (Exception ignored) {
+                } catch (Exception e) {
+                    System.err.println("[VisualCrafting] Client reflection handler failed: " + e.getClass().getSimpleName() + ": " + e.getMessage());
                 }
             }
         });
@@ -677,7 +900,8 @@ public class ModMessages {
     // ========================================================================
 
     public record AddRecipePacket(BlockPos pos, boolean shaped, ItemStack result,
-                                  List<ItemStack> ingredients) implements CustomPacketPayload {
+                                  List<ItemStack> ingredients,
+                                  boolean saveNbt) implements CustomPacketPayload {
         public static final Type<AddRecipePacket> TYPE = new Type<>(ADD_RECIPE_ID);
         public static final StreamCodec<RegistryFriendlyByteBuf, AddRecipePacket> STREAM_CODEC =
                 StreamCodec.of(AddRecipePacket::encode, AddRecipePacket::decode);
@@ -693,6 +917,7 @@ public class ModMessages {
             for (ItemStack stack : pkt.ingredients) {
                 ItemStack.OPTIONAL_STREAM_CODEC.encode(buf, stack);
             }
+            buf.writeBoolean(pkt.saveNbt);
         }
 
         private static AddRecipePacket decode(RegistryFriendlyByteBuf buf) {
@@ -704,7 +929,8 @@ public class ModMessages {
             for (int i = 0; i < count; i++) {
                 ingredients.add(ItemStack.OPTIONAL_STREAM_CODEC.decode(buf));
             }
-            return new AddRecipePacket(pos, shaped, result, ingredients);
+            boolean saveNbt = buf.readBoolean();
+            return new AddRecipePacket(pos, shaped, result, ingredients, saveNbt);
         }
     }
 

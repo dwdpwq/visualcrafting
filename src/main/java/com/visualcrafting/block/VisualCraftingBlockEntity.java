@@ -23,6 +23,40 @@ import java.util.UUID;
 public class VisualCraftingBlockEntity extends BlockEntity {
     private static final int MAX_RECIPES = 100;
 
+    /** tier：0=3x3 起，1=5x5，2=7x7，3=9x9；format：0=KUBEJS / 1=CRT；mode：0=合成 / 1=灌注 / 2=贸易 / 5=食物脚本 / 6=命名牌。 */
+    public static final int MIN_TIER = 0;
+    public static final int MAX_TIER = 3;
+    public static final int MIN_FORMAT = 0;
+    public static final int MAX_FORMAT = 1;
+    public static final int MODE_CRAFTING = 0;
+    public static final int MODE_INFUSING = 1;
+    public static final int MODE_TRADE = 2;
+    public static final int MODE_FOOD = 5;
+    public static final int MODE_NAME = 6;
+    /** 界面实际使用的合法模式；历史遗留的 3 / 4 为空洞值，一律视为非法。 */
+    private static final int[] VALID_MODES = {
+            MODE_CRAFTING, MODE_INFUSING, MODE_TRADE, MODE_FOOD, MODE_NAME
+    };
+
+    /** 模式是否为界面支持的合法值（3 / 4 等历史遗留值返回 false）。 */
+    public static boolean isValidMode(int mode) {
+        for (int valid : VALID_MODES) {
+            if (valid == mode) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 归一化模式：非法值（含旧存档里被写坏的 4）统一回退到合成模式。 */
+    public static int normalizeMode(int mode) {
+        return isValidMode(mode) ? mode : MODE_CRAFTING;
+    }
+
+    private static int clamp(int value, int min, int max) {
+        return value < min ? min : (value > max ? max : value);
+    }
+
     private final List<SavedRecipe> recipes = new ArrayList<>();
     private final List<String> history = new ArrayList<>();
     private int tier = 0;
@@ -112,7 +146,7 @@ public class VisualCraftingBlockEntity extends BlockEntity {
     }
 
     public void setTier(int tier) {
-        this.tier = tier;
+        this.tier = clamp(tier, MIN_TIER, MAX_TIER);
         setChanged();
         if (level != null) {
             level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
@@ -124,7 +158,7 @@ public class VisualCraftingBlockEntity extends BlockEntity {
     }
 
     public void setFormat(int format) {
-        this.format = format;
+        this.format = clamp(format, MIN_FORMAT, MAX_FORMAT);
         setChanged();
         if (level != null) {
             level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
@@ -136,7 +170,7 @@ public class VisualCraftingBlockEntity extends BlockEntity {
     }
 
     public void setMode(int mode) {
-        this.mode = mode;
+        this.mode = normalizeMode(mode);
         setChanged();
         if (level != null) {
             level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
@@ -225,9 +259,9 @@ public class VisualCraftingBlockEntity extends BlockEntity {
     @Override
     protected void loadAdditional(CompoundTag tag, HolderLookup.Provider provider) {
         super.loadAdditional(tag, provider);
-        tier = tag.getInt("Tier");
-        format = tag.getInt("Format");
-        mode = tag.getInt("Mode");
+        tier = clamp(tag.getInt("Tier"), MIN_TIER, MAX_TIER);
+        format = clamp(tag.getInt("Format"), MIN_FORMAT, MAX_FORMAT);
+        mode = normalizeMode(tag.getInt("Mode"));
         ownerId = tag.hasUUID("OwnerUUID") ? tag.getUUID("OwnerUUID") : null;
 
         recipes.clear();
@@ -261,12 +295,15 @@ public class VisualCraftingBlockEntity extends BlockEntity {
         public boolean banned;
         public ItemStack result;
         public List<ItemStack> ingredients;
+        /** 创建时间（epoch millis，服务端添加时写入）；0 表示未知（旧数据/最老，合并时优先保留）。 */
+        public long createdAt;
 
         public SavedRecipe(boolean shaped, ItemStack result, List<ItemStack> ingredients) {
             this.shaped = shaped;
             this.banned = false;
             this.result = result;
             this.ingredients = ingredients;
+            this.createdAt = System.currentTimeMillis();
         }
 
         public SavedRecipe(boolean shaped, boolean banned, ItemStack result, List<ItemStack> ingredients) {
@@ -274,6 +311,7 @@ public class VisualCraftingBlockEntity extends BlockEntity {
             this.banned = banned;
             this.result = result;
             this.ingredients = ingredients;
+            this.createdAt = 0L;
         }
 
         public SavedRecipe(ItemStack result) {
@@ -298,6 +336,9 @@ public class VisualCraftingBlockEntity extends BlockEntity {
                 }
             }
             tag.put("ingredients", ingredientsTag);
+            if (createdAt > 0) {
+                tag.putLong("CreatedAt", createdAt);
+            }
             return tag;
         }
 
@@ -311,7 +352,11 @@ public class VisualCraftingBlockEntity extends BlockEntity {
             for (int i = 0; i < ingredientsTag.size(); i++) {
                 ingredients.add(ItemStack.parse(provider, ingredientsTag.getCompound(i)).orElse(ItemStack.EMPTY));
             }
-            return new SavedRecipe(shaped, banned, result, ingredients);
+            SavedRecipe r = new SavedRecipe(shaped, banned, result, ingredients);
+            if (tag.contains("CreatedAt")) {
+                r.createdAt = tag.getLong("CreatedAt");
+            }
+            return r;
         }
     }
 

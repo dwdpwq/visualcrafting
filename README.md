@@ -1,5 +1,5 @@
 Visual Crafting Table 模组说明文档
-版本 1.6.0 | Minecraft 1.21.1 | NeoForge
+版本 1.6.1 | Minecraft 1.21.1 | NeoForge
 
 概述
 Visual Crafting Table 是一个 可视化配方管理工具，让整合包作者无需手写代码即可管理 KubeJS / CraftTweaker 配方。放置一个可视化工作台，放入物品点几下按钮，配方脚本自动生成到对应目录。

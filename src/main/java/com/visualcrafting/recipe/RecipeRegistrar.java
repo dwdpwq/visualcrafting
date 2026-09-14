@@ -32,6 +32,8 @@ public class RecipeRegistrar {
     private static final Map<String, List<VisualCraftingBlockEntity.SavedRecipe>> ALL_TABLE_RECIPES =
             new ConcurrentHashMap<>();
     private static final Map<String, Integer> TABLE_FORMATS = new ConcurrentHashMap<>();
+    /** playerId (UUID) -> 游戏内玩家名，用于脚本文件玩家维度命名。 */
+    private static final Map<UUID, String> PLAYER_NAMES = new ConcurrentHashMap<>();
     private static final Map<String, List<VisualCraftingBlockEntity.InfusingRecipe>> ALL_INFUSING_TABLE_RECIPES =
             new ConcurrentHashMap<>();
     private static final Map<String, Integer> INFUSING_TABLE_FORMATS = new ConcurrentHashMap<>();
@@ -48,6 +50,14 @@ public class RecipeRegistrar {
     private static final Path CRT_INFUSING_BANNED = Path.of("scripts/visualcrafting_infusing_banned.txt");
 
     // ---- Public update methods ----
+
+    /** 记录某玩家的游戏内名字（服务端收到交互时由 network handler 调用）。 */
+    public static void setPlayerName(UUID playerId, String playerName) {
+        if (playerId == null || playerName == null || playerName.isBlank()) {
+            return;
+        }
+        PLAYER_NAMES.put(playerId, playerName);
+    }
 
     public static void updateTableRecipes(UUID playerId, BlockPos pos,
                                           List<VisualCraftingBlockEntity.SavedRecipe> recipes, int format) {
@@ -94,15 +104,53 @@ public class RecipeRegistrar {
 
     // ---- Collect all recipes for given format ----
 
-    private static List<VisualCraftingBlockEntity.SavedRecipe> collectAllRecipes(int format) {
-        List<VisualCraftingBlockEntity.SavedRecipe> all = new ArrayList<>();
+    private record OwnedRecipe(UUID ownerId, VisualCraftingBlockEntity.SavedRecipe recipe) {
+        String ownerName() {
+            return ownerDisplay(ownerId);
+        }
+    }
+
+    private static List<OwnedRecipe> collectAllRecipes(int format) {
+        List<OwnedRecipe> all = new ArrayList<>();
         for (Map.Entry<String, List<VisualCraftingBlockEntity.SavedRecipe>> entry : ALL_TABLE_RECIPES.entrySet()) {
             Integer fmt = TABLE_FORMATS.get(entry.getKey());
             if (fmt != null && fmt == format) {
-                all.addAll(entry.getValue());
+                UUID ownerId = parseOwnerUuid(entry.getKey());
+                for (VisualCraftingBlockEntity.SavedRecipe r : entry.getValue()) {
+                    all.add(new OwnedRecipe(ownerId, r));
+                }
             }
         }
         return all;
+    }
+
+    /** tableKey = {uuid}_{pos}，uuid 不含 '_'，取第一个 '_' 前为玩家 uuid。 */
+    private static UUID parseOwnerUuid(String tableKey) {
+        int idx = tableKey.indexOf('_');
+        if (idx <= 0) return null;
+        try {
+            return UUID.fromString(tableKey.substring(0, idx));
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    /** 玩家显示名：优先游戏内名字，未知时用 uuid 前 8 位，保证文件名稳定且不含非法字符。 */
+    private static String ownerDisplay(UUID playerId) {
+        if (playerId == null) return "unknown";
+        String name = PLAYER_NAMES.get(playerId);
+        if (name == null || name.isBlank()) {
+            name = "p_" + playerId.toString().substring(0, 8);
+        }
+        return sanitizeFileNamePart(name);
+    }
+
+    private static String sanitizeFileNamePart(String raw) {
+        String s = raw == null ? "" : raw.replaceAll("[^A-Za-z0-9._-]", "_");
+        if (s.isEmpty() || s.equals(".") || s.equals("..")) {
+            s = "player";
+        }
+        return s;
     }
 
     private static List<VisualCraftingBlockEntity.InfusingRecipe> collectAllInfusingRecipes(int format) {
@@ -162,9 +210,13 @@ public class RecipeRegistrar {
         LOGGER.info("[VisualCrafting] regenerateScript: format={} ({}), tier={}, callerRecipes={}",
                 format, format == 0 ? "KubeJS" : "CRT", tier, callerRecipes.size());
 
-        List<VisualCraftingBlockEntity.SavedRecipe> allRecipes = collectAllRecipes(format);
+        List<OwnedRecipe> collected = collectAllRecipes(format);
+        List<OwnedRecipe> allRecipes = collected;
         if (allRecipes.isEmpty()) {
-            allRecipes = callerRecipes;
+            allRecipes = new ArrayList<>();
+            for (VisualCraftingBlockEntity.SavedRecipe r : callerRecipes) {
+                allRecipes.add(new OwnedRecipe(null, r));
+            }
             LOGGER.info("[VisualCrafting] ALL_TABLE_RECIPES empty — falling back to caller list ({} recipes)",
                     callerRecipes.size());
         }
@@ -173,100 +225,93 @@ public class RecipeRegistrar {
         Path bannedPath = format == 1 ? CRT_BANNED : KUBEJS_BANNED;
         Path outputsPath = format == 1 ? CRT_OUTPUTS : KUBEJS_OUTPUTS;
         Set<String> banned = loadSet(bannedPath);
+        String ext = format == 1 ? ".zs" : ".js";
+        String dirPrefix = format == 1 ? "scripts/" : "kubejs/server_scripts/";
+        boolean isCRT = format == 1;
 
-        // Group recipes by namespace
-        LinkedHashMap<String, List<VisualCraftingBlockEntity.SavedRecipe>> byNamespace = new LinkedHashMap<>();
+        // ---- 0. 清理历史生成脚本（旧 mod 命名 / 旧玩家文件），避免改名后残留文件仍被脚本加载
+        cleanupGeneratedScripts(Path.of(dirPrefix));
+
+        // ---- 1. 按创建时间升序（早的在先），为“相同项只保留最早”做稳定输入
+        List<OwnedRecipe> sorted = new ArrayList<>(allRecipes);
+        sorted.sort(java.util.Comparator.comparingLong((OwnedRecipe t) -> t.recipe().createdAt)
+                .thenComparing(t -> t.ownerId() == null ? "" : t.ownerId().toString()));
+
+        // ---- 2. 自动合并：配方一致且产出一致 -> 只保留创建时间最早的；不同时间/不同配方均保留
+        LinkedHashMap<String, OwnedRecipe> unique3x3 = new LinkedHashMap<>();
+        LinkedHashMap<String, OwnedRecipe> uniqueExtended = new LinkedHashMap<>();
         LinkedHashSet<String> allOutputIds = new LinkedHashSet<>();
-        for (VisualCraftingBlockEntity.SavedRecipe recipe : allRecipes) {
-            String id = BuiltInRegistries.ITEM.getKey(recipe.result.getItem()).toString();
-            allOutputIds.add(id);
-            String ns = id.split(":")[0];
-            byNamespace.computeIfAbsent(ns, k -> new ArrayList<>()).add(recipe);
+        for (OwnedRecipe or : sorted) {
+            VisualCraftingBlockEntity.SavedRecipe r = or.recipe();
+            String outputId = BuiltInRegistries.ITEM.getKey(r.result.getItem()).toString();
+            allOutputIds.add(outputId);
+            if (isExtendedGrid(r)) {
+                uniqueExtended.putIfAbsent(fingerprint(r), or);
+            } else {
+                unique3x3.putIfAbsent(fingerprint(r), or);
+            }
         }
         saveSet(outputsPath, allOutputIds);
 
-        // Group banned by namespace
+        // ---- 3. banned（全局删除输出）按产出 mod 归组
         LinkedHashMap<String, List<String>> bannedByNs = new LinkedHashMap<>();
         for (String bannedId : banned) {
             String ns = bannedId.split(":")[0];
             bannedByNs.computeIfAbsent(ns, k -> new ArrayList<>()).add(bannedId);
         }
 
-        LOGGER.info("[VisualCrafting] byNamespace: {} namespaces ({}), bannedByNamespace: {} namespaces ({}), banned={}",
-                byNamespace.size(), byNamespace.keySet(), bannedByNs.size(), bannedByNs.keySet(), banned);
+        LOGGER.info("[VisualCrafting] unique3x3={}, uniqueExtended={}, bannedByNs={}",
+                unique3x3.size(), uniqueExtended.size(), bannedByNs.keySet());
 
-        LinkedHashSet<String> allNamespaces = new LinkedHashSet<>(byNamespace.keySet());
-        allNamespaces.addAll(bannedByNs.keySet());
+        // ---- 4. 普通 3x3 配方：按 (玩家名, 产出mod) 分组写文件 {玩家}.visualcrafting.{mod}{ext}
+        java.util.TreeMap<String, List<OwnedRecipe>> groups = new java.util.TreeMap<>();
+        for (OwnedRecipe or : unique3x3.values()) {
+            if (isExtendedGrid(or.recipe())) continue;
+            String outputId = BuiltInRegistries.ITEM.getKey(or.recipe().result.getItem()).toString();
+            String mod = outputId.split(":")[0];
+            groups.computeIfAbsent(or.ownerName() + "\u0001" + mod, k -> new ArrayList<>()).add(or);
+        }
 
-        String ext = format == 1 ? ".zs" : ".js";
-        String dirPrefix = format == 1 ? "scripts/" : "kubejs/server_scripts/";
-        boolean isCRT = format == 1;
+        Map<String, Integer> crtNameCounter = new HashMap<>();
+        for (Map.Entry<String, List<OwnedRecipe>> groupEntry : groups.entrySet()) {
+            String owner = groupEntry.getKey().split("\u0001", 2)[0];
+            String mod = groupEntry.getKey().split("\u0001", 2)[1];
+            List<OwnedRecipe> groupRecipes = groupEntry.getValue();
 
-        for (String namespace : allNamespaces) {
-            List<VisualCraftingBlockEntity.SavedRecipe> nsRecipes =
-                    byNamespace.getOrDefault(namespace, Collections.emptyList());
-            List<String> nsBanned = bannedByNs.getOrDefault(namespace, Collections.emptyList());
-
-            boolean has3x3 = false;
-            for (VisualCraftingBlockEntity.SavedRecipe r : nsRecipes) {
-                int side = (int) Math.sqrt(r.ingredients.size());
-                if (side * side == r.ingredients.size() && side == 3) {
-                    has3x3 = true;
-                    break;
-                }
-            }
-
-            if (!has3x3 && nsBanned.isEmpty()) continue;
-
-            String fileName = "visualcrafting_" + namespace + ext;
+            String fileName = owner + ".visualcrafting." + mod + ext;
             Path outputPath = Path.of(dirPrefix).resolve(fileName);
             StringBuilder sb = new StringBuilder();
 
             if (isCRT) {
-                sb.append("// VisualCrafting auto-generated - ").append(namespace).append("\n");
+                sb.append("// VisualCrafting auto-generated - player:").append(owner)
+                        .append(" output:").append(mod).append("\n");
                 sb.append("// /reload to apply\n\n");
             } else {
                 sb.append("ServerEvents.recipes(event => {\n");
             }
 
-            if (isCRT && !nsBanned.isEmpty()) {
-                sb.append("// Banned recipes\n");
-            }
-            for (String bannedId : nsBanned) {
-                String name = new ItemStack(BuiltInRegistries.ITEM.get(ResourceLocation.parse(bannedId)))
-                        .getHoverName().getString();
-                if (isCRT) {
-                    sb.append("craftingTable.remove(<item:").append(bannedId).append(">);//删除\"")
-                            .append(name).append("\"配方\n");
-                } else {
-                    sb.append("  event.remove({ output: '").append(bannedId).append("' });//删除\"")
-                            .append(name).append("\"配方\n");
+            List<String> nsBanned = bannedByNs.get(mod);
+            if (nsBanned != null && !nsBanned.isEmpty()) {
+                for (String bannedId : nsBanned) {
+                    String name = new ItemStack(BuiltInRegistries.ITEM.get(ResourceLocation.parse(bannedId)))
+                            .getHoverName().getString();
+                    if (isCRT) {
+                        sb.append("craftingTable.remove(<item:").append(bannedId).append(">);//删除\"")
+                                .append(name).append("\"配方\n");
+                    } else {
+                        sb.append("  event.remove({ output: '").append(bannedId).append("' });//删除\"")
+                                .append(name).append("\"配方\n");
+                    }
                 }
             }
 
-            // 3x3 recipes
-            List<VisualCraftingBlockEntity.SavedRecipe> grid3x3 = new ArrayList<>();
-            for (VisualCraftingBlockEntity.SavedRecipe r : nsRecipes) {
-                int side = (int) Math.sqrt(r.ingredients.size());
-                if (side * side == r.ingredients.size() && side == 3) {
-                    grid3x3.add(r);
-                }
-            }
-
-            if (isCRT && !grid3x3.isEmpty()) {
-                sb.append("\n// Recipes\n");
-            }
-            Map<String, Integer> nameCounter = new HashMap<>();
-            for (VisualCraftingBlockEntity.SavedRecipe r : grid3x3) {
+            for (OwnedRecipe or : groupRecipes) {
+                VisualCraftingBlockEntity.SavedRecipe r = or.recipe();
                 String outputId = BuiltInRegistries.ITEM.getKey(r.result.getItem()).toString();
                 int count = r.result.getCount();
-
                 if (isCRT) {
-                    String pathName = ResourceLocation.parse(outputId).getPath();
-                    int idx = nameCounter.getOrDefault(pathName, 0);
-                    nameCounter.put(pathName, idx + 1);
-                    String recipeName = idx == 0 ? pathName : pathName + "_" + idx;
-
+                    sb.append("\n// Recipes\n");
+                    String recipeName = crtRecipeName(crtNameCounter, outputId);
                     if (r.shaped) {
                         generateShapedCRT(sb, r, outputId, count, recipeName);
                     } else {
@@ -285,79 +330,176 @@ public class RecipeRegistrar {
             if (!isCRT) {
                 sb.append("});\n");
             }
-
-            try {
-                Files.createDirectories(outputPath.getParent());
-                Files.writeString(outputPath, sb.toString());
-                LOGGER.info("[VisualCrafting] Wrote {} ({} chars) → {}", fileName, sb.length(),
-                        outputPath.toAbsolutePath());
-            } catch (IOException e) {
-                LOGGER.error("[VisualCrafting] Write failed: {} — {}", outputPath.toAbsolutePath(), e.getMessage());
-            }
+            writeScript(outputPath, sb, fileName);
         }
 
-        // Extended crafting (4x4+)
-        String extCraftFile = "visualcrafting~Extended_Crafting" + ext;
-        Path extCraftPath = Path.of(dirPrefix).resolve(extCraftFile);
-        StringBuilder extSb = new StringBuilder();
-
-        if (isCRT) {
-            extSb.append("// VisualCrafting auto-generated - Extended Crafting\n");
-            extSb.append("// /reload to apply\n\n");
-            extSb.append("// Recipes\n");
-        } else {
-            extSb.append("ServerEvents.recipes(event => {\n");
-        }
-
-        List<VisualCraftingBlockEntity.SavedRecipe> extended = new ArrayList<>();
-        for (String ns : allNamespaces) {
-            List<VisualCraftingBlockEntity.SavedRecipe> nsRecipes =
-                    byNamespace.getOrDefault(ns, Collections.emptyList());
-            for (VisualCraftingBlockEntity.SavedRecipe r : nsRecipes) {
-                int side = (int) Math.sqrt(r.ingredients.size());
-                if (side * side == r.ingredients.size() && side > 3) {
-                    extended.add(r);
+        // ---- 5. banned-only 的 mod（无任何玩家配方文件）补一个仅含删除声明的文件
+        for (String ns : bannedByNs.keySet()) {
+            boolean hasGroup = false;
+            for (String gk : groups.keySet()) {
+                if (gk.endsWith("\u0001" + ns)) {
+                    hasGroup = true;
+                    break;
                 }
             }
+            if (hasGroup) continue;
+            String fileName = "visualcrafting_" + ns + ext;
+            Path outputPath = Path.of(dirPrefix).resolve(fileName);
+            StringBuilder sb = new StringBuilder();
+            if (isCRT) {
+                sb.append("// VisualCrafting auto-generated - banned ").append(ns).append("\n");
+            } else {
+                sb.append("ServerEvents.recipes(event => {\n");
+            }
+            for (String bannedId : bannedByNs.get(ns)) {
+                String name = new ItemStack(BuiltInRegistries.ITEM.get(ResourceLocation.parse(bannedId)))
+                        .getHoverName().getString();
+                if (isCRT) {
+                    sb.append("craftingTable.remove(<item:").append(bannedId).append(">);//删除\"")
+                            .append(name).append("\"配方\n");
+                } else {
+                    sb.append("  event.remove({ output: '").append(bannedId).append("' });//删除\"")
+                            .append(name).append("\"配方\n");
+                }
+            }
+            if (!isCRT) {
+                sb.append("});\n");
+            }
+            writeScript(outputPath, sb, fileName);
         }
 
-        Map<String, Integer> extNameCounter = new HashMap<>();
-        for (VisualCraftingBlockEntity.SavedRecipe r : extended) {
-            String outputId = BuiltInRegistries.ITEM.getKey(r.result.getItem()).toString();
-            int count = r.result.getCount();
+        // ---- 6. Extended crafting (4x4+)：独立文件 + 同配方按时间去重
+        if (!uniqueExtended.isEmpty()) {
+            String extCraftFile = "visualcrafting~Extended_Crafting" + ext;
+            Path extCraftPath = Path.of(dirPrefix).resolve(extCraftFile);
+            StringBuilder extSb = new StringBuilder();
 
             if (isCRT) {
-                String pathName = ResourceLocation.parse(outputId).getPath();
-                int idx = extNameCounter.getOrDefault(pathName, 0);
-                extNameCounter.put(pathName, idx + 1);
-                String recipeName = idx == 0 ? pathName : pathName + "_" + idx;
-
-                if (r.shaped) {
-                    generateShapedCRT(extSb, r, outputId, count, recipeName);
-                } else {
-                    generateShapelessCRT(extSb, r, outputId, count, recipeName);
-                }
+                extSb.append("// VisualCrafting auto-generated - Extended Crafting\n");
+                extSb.append("// /reload to apply\n\n");
+                extSb.append("// Recipes\n");
             } else {
-                if (r.shaped) {
-                    generateShaped(extSb, r, outputId, count);
+                extSb.append("ServerEvents.recipes(event => {\n");
+            }
+
+            for (OwnedRecipe or : uniqueExtended.values()) {
+                VisualCraftingBlockEntity.SavedRecipe r = or.recipe();
+                String outputId = BuiltInRegistries.ITEM.getKey(r.result.getItem()).toString();
+                int count = r.result.getCount();
+                if (isCRT) {
+                    String recipeName = crtRecipeName(crtNameCounter, outputId);
+                    if (r.shaped) {
+                        generateShapedCRT(extSb, r, outputId, count, recipeName);
+                    } else {
+                        generateShapelessCRT(extSb, r, outputId, count, recipeName);
+                    }
                 } else {
-                    generateShapeless(extSb, r, outputId, count);
+                    if (r.shaped) {
+                        generateShaped(extSb, r, outputId, count);
+                    } else {
+                        generateShapeless(extSb, r, outputId, count);
+                    }
+                }
+                extSb.append("\n");
+            }
+
+            if (!isCRT) {
+                extSb.append("});\n");
+            }
+            writeScript(extCraftPath, extSb, extCraftFile);
+        }
+    }
+
+    /** CRT 配方名：path 首次直接用，重复时追加 _1/_2...（跨文件全局递增，保证不冲突）。 */
+    private static String crtRecipeName(Map<String, Integer> counter, String outputId) {
+        String pathName = ResourceLocation.parse(outputId).getPath();
+        int idx = counter.merge(pathName, 1, Integer::sum) - 1;
+        return idx == 0 ? pathName : pathName + "_" + idx;
+    }
+
+    /** 是否为 >3x3 的大网格（4x4 / 5x5 / ...）→ Extended_Crafting 文件。 */
+    private static boolean isExtendedGrid(VisualCraftingBlockEntity.SavedRecipe r) {
+        int side = (int) Math.sqrt(r.ingredients.size());
+        return side * side == r.ingredients.size() && side > 3;
+    }
+
+    /** 生成“配方+产出”指纹：配方一致（shaped 按裁剪后的逐格物品、shapeless 按无序物品集）且产出一致。 */
+    private static String fingerprint(VisualCraftingBlockEntity.SavedRecipe r) {
+        String outId = BuiltInRegistries.ITEM.getKey(r.result.getItem()).toString();
+        StringBuilder sb = new StringBuilder(outId).append('|').append(r.result.getCount()).append('|');
+        if (r.shaped) {
+            sb.append("S|");
+            int side = (int) Math.sqrt(r.ingredients.size());
+            int minRow = side, maxRow = -1, minCol = side, maxCol = -1;
+            for (int rr = 0; rr < side; rr++) {
+                for (int cc = 0; cc < side; cc++) {
+                    int idx = rr * side + cc;
+                    if (idx >= r.ingredients.size() || r.ingredients.get(idx).isEmpty()) continue;
+                    minRow = Math.min(minRow, rr);
+                    maxRow = Math.max(maxRow, rr);
+                    minCol = Math.min(minCol, cc);
+                    maxCol = Math.max(maxCol, cc);
                 }
             }
-            extSb.append("\n");
+            if (minRow <= maxRow) {
+                for (int rr = minRow; rr <= maxRow; rr++) {
+                    if (rr > minRow) sb.append(';');
+                    for (int cc = minCol; cc <= maxCol; cc++) {
+                        int idx = rr * side + cc;
+                        if (idx < r.ingredients.size() && !r.ingredients.get(idx).isEmpty()) {
+                            sb.append(BuiltInRegistries.ITEM.getKey(r.ingredients.get(idx).getItem()));
+                        } else {
+                            sb.append('.');
+                        }
+                        if (cc < maxCol) sb.append(' ');
+                    }
+                }
+            }
+        } else {
+            sb.append("L|");
+            List<String> ids = new ArrayList<>();
+            for (ItemStack s : r.ingredients) {
+                if (!s.isEmpty()) ids.add(BuiltInRegistries.ITEM.getKey(s.getItem()).toString());
+            }
+            Collections.sort(ids);
+            sb.append(String.join(",", ids));
         }
+        return sb.toString();
+    }
 
-        if (!isCRT) {
-            extSb.append("});\n");
-        }
-
-        try {
-            Files.createDirectories(extCraftPath.getParent());
-            Files.writeString(extCraftPath, extSb.toString());
-            LOGGER.info("[VisualCrafting] Wrote {} ({} chars) → {}", extCraftFile, extSb.length(),
-                    extCraftPath.toAbsolutePath());
+    /** 清理本 mod 在脚本目录中生成的旧命名脚本（旧 visualcrafting_*.js/.zs 或玩家文件），避免残留旧配方。 */
+    private static void cleanupGeneratedScripts(Path dir) {
+        if (dir == null || !Files.isDirectory(dir)) return;
+        try (java.util.stream.Stream<Path> stream = Files.list(dir)) {
+            stream.filter(Files::isRegularFile).forEach(p -> {
+                String name = p.getFileName().toString();
+                if (!name.endsWith(".js") && !name.endsWith(".zs")) return;
+                // 保留灌注脚本（另有专用输出名）
+                if (name.startsWith("visualcrafting_metallurgic_infusing")) return;
+                boolean managed = name.startsWith("visualcrafting_")
+                        || name.startsWith("visualcrafting~")
+                        || name.contains(".visualcrafting.");
+                if (!managed) return;
+                try {
+                    Files.deleteIfExists(p);
+                    LOGGER.info("[VisualCrafting] Cleaned stale script {}", name);
+                } catch (IOException e) {
+                    LOGGER.warn("[VisualCrafting] Failed to clean stale script {}: {}", name, e.getMessage());
+                }
+            });
         } catch (IOException e) {
-            LOGGER.error("[VisualCrafting] Write failed: {} — {}", extCraftPath.toAbsolutePath(), e.getMessage());
+            LOGGER.warn("[VisualCrafting] Failed to list script dir {}: {}", dir, e.getMessage());
+        }
+    }
+
+    private static void writeScript(Path outputPath, StringBuilder sb, String fileName) {
+        try {
+            Files.createDirectories(outputPath.getParent());
+            Files.writeString(outputPath, sb.toString());
+            LOGGER.info("[VisualCrafting] Wrote {} ({} chars) → {}", fileName, sb.length(),
+                    outputPath.toAbsolutePath());
+        } catch (IOException e) {
+            LOGGER.error("[VisualCrafting] Write failed: {} — {}", outputPath.toAbsolutePath(), e.getMessage());
         }
     }
 
@@ -457,13 +599,11 @@ public class RecipeRegistrar {
                     sb.append("    .build();//").append(r.output.getHoverName().getString()).append("\n\n");
                 } else {
                     sb.append("  event.remove({ output: \"").append(outputId).append("\" });\n");
-                    sb.append("  event.custom({\n");
-                    sb.append("    type: \"mekanism:metallurgic_infusing\",\n");
-                    sb.append("    chemical_input: { amount: ").append(r.infusionAmount);
-                    sb.append(", chemical: \"").append(inputAStr).append("\" },\n");
-                    sb.append("    item_input: { ingredient: { item: \"").append(inputBStr).append("\" } },\n");
-                    sb.append("    output: { id: \"").append(outputId).append("\" }\n");
-                    sb.append("  });//").append(r.output.getHoverName().getString()).append("\n");
+                    sb.append("  event.recipes.mekanism.metallurgic_infusing(\n");
+                    sb.append("    '").append(outputId).append("',  // 输出\n");
+                    sb.append("    '").append(inputBStr).append("',  // 输入物品\n");
+                    sb.append("    '").append(r.infusionAmount).append("x ").append(inputAStr).append("'  // 化学品 + 数量\n");
+                    sb.append("  );\n");
                 }
             }
         }

@@ -1,45 +1,58 @@
-package com.visualcrafting.event;
+package com.visualcrafting.compat.ae2;
 
 import appeng.api.networking.IGrid;
 import appeng.api.networking.security.IActionSource;
 import appeng.api.upgrades.IUpgradeInventory;
 import appeng.blockentity.misc.InterfaceBlockEntity;
-import com.visualcrafting.fluid.ExperienceFluidHelper;
-import com.visualcrafting.item.FurnaceCardItem;
+import com.visualcrafting.item.FurnaceCardData;
+import com.visualcrafting.item.IFurnaceCard;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.AbstractFurnaceBlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntity;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.common.EventBusSubscriber;
-import net.neoforged.neoforge.event.tick.ServerTickEvent;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Handles furnace card XP accumulation.
- * Periodically scans ME Interfaces with furnace cards installed,
- * captures XP from adjacent furnaces and stores it in the card.
- * Overflow XP is injected into the AE network as experience fluid;
+ * 熔炉卡经验收集（AE2 侧）。
+ * <p>
+ * Handles furnace card XP accumulation: periodically scans ME Interfaces with
+ * furnace cards installed, captures XP from adjacent furnaces and stores it in
+ * the card. Overflow XP is injected into the AE network as experience fluid;
  * if injection is not possible, the overflow is discarded.
+ * <p>
+ * 由 {@link Ae2FurnaceTickHandler} 在每个服务端 tick 统一驱动。
  */
-@EventBusSubscriber(modid = "visualcrafting")
-public class FurnaceCardExpHandler {
+public final class Ae2FurnaceExpCollector {
 
-    private static int tickCounter;
     private static final int SCAN_INTERVAL = 40;
+    private static final Logger LOGGER = LoggerFactory.getLogger(Ae2FurnaceExpCollector.class);
 
-    @SubscribeEvent
-    public static void onServerTick(ServerTickEvent.Post event) {
-        tickCounter++;
-        if (tickCounter % SCAN_INTERVAL != 0) return;
+    /** 反射失败原因只告警一次：既不刷屏，又留下排查线索。 */
+    private static final Set<String> WARNED = ConcurrentHashMap.newKeySet();
 
-        for (ServerLevel level : event.getServer().getAllLevels()) {
+    private Ae2FurnaceExpCollector() {
+    }
+
+    private static void warnOnce(String key, Throwable t) {
+        if (WARNED.add(key)) {
+            LOGGER.warn("[VC:FurnaceCard] {} failed (logged once): {}", key, t.toString());
+        }
+    }
+
+    public static void processAllLevels(MinecraftServer server, long tick) {
+        if (tick % SCAN_INTERVAL != 0L) return;
+
+        for (ServerLevel level : server.getAllLevels()) {
             processLevel(level);
         }
     }
@@ -52,7 +65,7 @@ public class FurnaceCardExpHandler {
             boolean hasCard = false;
             for (int i = 0; i < upgrades.size() && !hasCard; i++) {
                 ItemStack s = upgrades.getStackInSlot(i);
-                if (!s.isEmpty() && s.getItem() instanceof FurnaceCardItem) hasCard = true;
+                if (!s.isEmpty() && s.getItem() instanceof IFurnaceCard) hasCard = true;
             }
             if (!hasCard) continue;
 
@@ -89,21 +102,26 @@ public class FurnaceCardExpHandler {
                         try {
                             var m = holder.getClass().getMethod("getFullChunk");
                             chunk = m.invoke(holder);
-                        } catch (Exception ignored) {}
+                        } catch (Throwable ignored) {
+                        }
                     }
                     if (chunk == null) continue;
                     var getBlockEntities = chunk.getClass().getMethod("getBlockEntities");
                     var blockEntities = getBlockEntities.invoke(chunk);
-                    if (blockEntities instanceof java.util.Map<?,?> map) {
+                    if (blockEntities instanceof java.util.Map<?, ?> map) {
                         for (Object be : map.values()) {
                             if (be instanceof InterfaceBlockEntity iface && !iface.isRemoved()) {
                                 list.add(iface);
                             }
                         }
                     }
-                } catch (Exception ignored) {}
+                } catch (Throwable ignored) {
+                    // 单区块读取失败属正常回退路径，保持静默
+                }
             }
-        } catch (Exception ignored) {}
+        } catch (Throwable t) {
+            warnOnce("findLoadedInterfaces", t);
+        }
         return list;
     }
 
@@ -111,13 +129,13 @@ public class FurnaceCardExpHandler {
         for (int i = 0; i < upgrades.size(); i++) {
             if (xpMilli <= 0) break;
             ItemStack stack = upgrades.getStackInSlot(i);
-            if (stack.isEmpty() || !(stack.getItem() instanceof FurnaceCardItem item)) continue;
+            if (stack.isEmpty() || !(stack.getItem() instanceof IFurnaceCard item)) continue;
             long cap = item.getMaxExpStorage();
-            long current = FurnaceCardItem.getStoredExpMilli(stack);
+            long current = FurnaceCardData.getStoredExpMilli(stack);
             long space = cap - current;
             if (space <= 0) continue;
             long toStore = Math.min(space, xpMilli);
-            FurnaceCardItem.setStoredExpMilli(stack, current + toStore);
+            FurnaceCardData.setStoredExpMilli(stack, current + toStore);
             xpMilli -= toStore;
             // 写回升级槽并通知客户端同步(否则ME接口UI"取出经验"读不到新值)
             upgrades.setItemDirect(i, stack.copy());
@@ -155,9 +173,11 @@ public class FurnaceCardExpHandler {
             if (be instanceof AbstractFurnaceBlockEntity) {
                 java.lang.reflect.Field f = AbstractFurnaceBlockEntity.class.getDeclaredField("recipeExperience");
                 f.setAccessible(true);
-                return f.getFloat(be) > 0 ? (long)(f.getFloat(be) * 1000) : 0;
+                return f.getFloat(be) > 0 ? (long) (f.getFloat(be) * 1000) : 0;
             }
-        } catch (Exception ignored) {}
+        } catch (Throwable t) {
+            warnOnce("getFurnaceXp(recipeExperience)", t);
+        }
         return 0;
     }
 
@@ -170,7 +190,9 @@ public class FurnaceCardExpHandler {
                 f.setFloat(be, value);
                 be.setChanged();
             }
-        } catch (Exception ignored) {}
+        } catch (Throwable t) {
+            warnOnce("setFurnaceXp(recipeExperience)", t);
+        }
     }
 
     private static void discardOverflow(InterfaceBlockEntity iface, long milliXp) {
@@ -183,7 +205,8 @@ public class FurnaceCardExpHandler {
         if (points <= 0L) return;
         serverLevel.getServer().getPlayerList().getPlayers().forEach(p ->
                 p.displayClientMessage(
-                        Component.literal("[VC] 熔炉经验溢出 " + points + " 点，无法注入 AE 网络，已丢弃 (" + iface.getBlockPos().toShortString() + ")"),
+                        Component.translatable("gui.visualcrafting.chat.card_overflow_discard", points,
+                                iface.getBlockPos().toShortString()),
                         false));
     }
 
@@ -198,36 +221,10 @@ public class FurnaceCardExpHandler {
             IGrid grid = node.getGrid();
             if (grid == null) return false;
             IActionSource source = IActionSource.ofMachine(iface);
-            return ExperienceFluidHelper.insertExpFluidToNetwork(grid, source, milliXp);
-        } catch (Exception ignored) {
+            return Ae2ExperienceFluid.insertExpFluidToNetwork(grid, source, milliXp);
+        } catch (Throwable t) {
+            warnOnce("injectExpFluidToNetwork", t);
             return false;
-        }
-    }
-
-    /**
-     * Called by FurnaceCardTickHandler to process a single ME Interface.
-     * When auto-processing is enabled, scans interface inventory for smelting/
-     * blasting patterns and dispatches matching items through them.
-     */
-    public static void processInterface(InterfaceBlockEntity iface, ServerLevel level, long tick) {
-        IUpgradeInventory upgrades = iface.getUpgrades();
-        if (upgrades == null) return;
-
-        boolean hasCard = false;
-        for (int i = 0; i < upgrades.size() && !hasCard; i++) {
-            ItemStack s = upgrades.getStackInSlot(i);
-            if (!s.isEmpty() && s.getItem() instanceof FurnaceCardItem) hasCard = true;
-        }
-        if (!hasCard) return;
-
-        // Simple XP collection from adjacent furnaces (existing logic)
-        BlockPos pos = iface.getBlockPos();
-        long totalXp = collectFurnaceXp(level, pos);
-        if (totalXp > 0) {
-            long remaining = storeXpToUpgrades(upgrades, totalXp);
-            if (remaining > 0) {
-                discardOverflow(iface, remaining);
-            }
         }
     }
 }

@@ -1,7 +1,6 @@
 {
   "replace": false,
   "values": [
-    "visualcrafting:liquid_xp",
     "create:experience",
     "sophisticatedbackpacks:xp_still",
     "cofh_core:experience",

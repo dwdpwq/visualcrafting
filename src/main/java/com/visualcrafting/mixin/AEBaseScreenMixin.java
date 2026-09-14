@@ -4,7 +4,8 @@ import appeng.client.gui.AEBaseScreen;
 import appeng.client.gui.Icon;
 import appeng.client.gui.implementations.InterfaceScreen;
 import appeng.client.gui.widgets.TabButton;
-import com.visualcrafting.item.FurnaceCardItem;
+import com.visualcrafting.item.FurnaceCardData;
+import com.visualcrafting.item.IFurnaceCard;
 import com.visualcrafting.network.ExtractFurnaceExpPacket;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Tooltip;
@@ -23,6 +24,13 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import java.lang.reflect.Method;
 
+/**
+ * ME 接口界面上的"取出经验"按钮。
+ * <p>
+ * 本 mixin 由 {@code VisualCraftingMixinPlugin#shouldApplyMixin} 在 AE2 已加载时才应用，
+ * 因此可以直接引用 appeng 类型。注意：熔炉卡判定必须基于 {@link IFurnaceCard} 接口
+ * ——AE2 环境下实际物品类是 compat.ae2 下的 UpgradeCardItem 子类，不是基础实现类。
+ */
 @Mixin(AEBaseScreen.class)
 public abstract class AEBaseScreenMixin {
 
@@ -92,9 +100,9 @@ public abstract class AEBaseScreenMixin {
                 if (slot.container instanceof Inventory) continue;
                 ItemStack stack = slot.getItem();
                 if (stack.isEmpty()) continue;
-                if (!(stack.getItem() instanceof FurnaceCardItem card)) continue;
+                if (!(stack.getItem() instanceof IFurnaceCard card)) continue;
                 hasCard = true;
-                storedMilli = FurnaceCardItem.getStoredExpMilli(stack);
+                storedMilli = FurnaceCardData.getStoredExpMilli(stack);
                 cardTier = card.getTier();
                 break;
             }
@@ -112,9 +120,9 @@ public abstract class AEBaseScreenMixin {
                         for (int i = 0; i < upgrades.size(); i++) {
                             ItemStack stack = upgrades.getStackInSlot(i);
                             if (stack.isEmpty()) continue;
-                            if (!(stack.getItem() instanceof FurnaceCardItem card)) continue;
+                            if (!(stack.getItem() instanceof IFurnaceCard card)) continue;
                             hasCard = true;
-                            storedMilli = FurnaceCardItem.getStoredExpMilli(stack);
+                            storedMilli = FurnaceCardData.getStoredExpMilli(stack);
                             cardTier = card.getTier();
                             break;
                         }
@@ -131,11 +139,11 @@ public abstract class AEBaseScreenMixin {
 
         visualcrafting$furnaceExpButton.visible = true;
         int levels = milliToLevel(storedMilli);
-        int maxLevel = FurnaceCardItem.getMaxExperienceLevels(cardTier > 0 ? cardTier : 1);
+        int maxLevel = FurnaceCardData.getMaxExperienceLevels(cardTier > 0 ? cardTier : 1);
         int cappedLevels = Math.min(levels, maxLevel);
-        String label = "\u53d6\u51fa\u7ecf\u9a8c:" + cappedLevels + "\u7ea7";
+        String label = Component.translatable("gui.visualcrafting.ae.extract_exp", cappedLevels).getString();
         if (cappedLevels >= maxLevel) {
-            label += "(\u5df2\u8fbe\u4e0a\u9650)";
+            label = Component.translatable("gui.visualcrafting.ae.extract_exp_limit", cappedLevels).getString();
         }
         visualcrafting$furnaceExpButton.setTooltip(
                 Tooltip.create(Component.literal(label)));

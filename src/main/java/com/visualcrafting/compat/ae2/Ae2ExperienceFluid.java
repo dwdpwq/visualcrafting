@@ -1,4 +1,4 @@
-package com.visualcrafting.fluid;
+package com.visualcrafting.compat.ae2;
 
 import appeng.api.config.Actionable;
 import appeng.api.networking.IGrid;
@@ -6,11 +6,20 @@ import appeng.api.networking.security.IActionSource;
 import appeng.api.networking.storage.IStorageService;
 import appeng.api.stacks.AEFluidKey;
 import appeng.api.storage.MEStorage;
+import com.visualcrafting.fluid.ExperienceFluidFinder;
 import net.minecraft.world.level.material.Fluid;
 
 import java.util.List;
 
-public class ExperienceFluidHelper {
+/**
+ * 经验流体注入工具（AE2 侧）。
+ * <p>
+ * 仅在 AE2 已加载时由 {@code Ae2FurnaceExpCollector} 调用。
+ */
+public final class Ae2ExperienceFluid {
+
+    private Ae2ExperienceFluid() {
+    }
 
     /**
      * Convert milli-XP (1000 = 1 XP) to millibuckets (mB).
@@ -26,7 +35,7 @@ public class ExperienceFluidHelper {
      * <p>
      * Strategy:
      * 1. If network already has an experience fluid stored, use that type.
-     * 2. Otherwise, use the fluid locked by ExperienceFluidFinder.
+     * 2. Otherwise, use the fluid locked by {@link ExperienceFluidFinder}.
      * 3. Convert milli-XP to mB (20 mB = 1 XP).
      */
     public static boolean insertExpFluidToNetwork(IGrid grid, IActionSource source, long milliXp) {

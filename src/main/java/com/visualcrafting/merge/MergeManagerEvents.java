@@ -3,10 +3,12 @@ package com.visualcrafting.merge;
 import net.minecraft.server.packs.resources.ResourceManager;
 import net.minecraft.server.packs.resources.SimplePreparableReloadListener;
 import net.minecraft.util.profiling.ProfilerFiller;
+import net.minecraft.server.MinecraftServer;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.event.AddReloadListenerEvent;
 import net.neoforged.neoforge.event.server.ServerStartedEvent;
+import net.neoforged.neoforge.server.ServerLifecycleHooks;
 
 /**
  * 将 {@link MergeManager} 挂载到模组生命周期：
@@ -20,7 +22,7 @@ public class MergeManagerEvents {
 
     @SubscribeEvent
     public static void onServerStarted(ServerStartedEvent event) {
-        new MergeManager().mergeAll();
+        new MergeManager(event.getServer()).mergeAll();
     }
 
     /**
@@ -37,7 +39,10 @@ public class MergeManagerEvents {
 
             @Override
             protected void apply(Object prepared, ResourceManager resourceManager, ProfilerFiller profilerFiller) {
-                new MergeManager().mergeAll();
+                MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
+                if (server != null) {
+                    new MergeManager(server).mergeAll();
+                }
             }
         });
     }

@@ -13,6 +13,7 @@ import com.google.gson.JsonObject;
  * 根 JSON 结构：
  * <pre>
  * {
+ *   "type": "recipe | worldgen | startup_scripts",
  *   "player": "Steve",
  *   "recipeId": "minecraft:stone",
  *   "timestamp": 1780000000000,
@@ -22,10 +23,13 @@ import com.google.gson.JsonObject;
  */
 public class PendingOperation {
 
+    /** 内容类型：recipe（合成配方，默认）/ worldgen（世界生成数据包）/ startup_scripts（KubeJS 启动脚本） */
+    private String type;
+
     /** 编辑该配方的玩家名 / UUID */
     private String player;
 
-    /** 配方 ID，格式 {@code 命名空间:路径}，例如 {@code minecraft:stone} */
+    /** 配方 ID，格式 {@code 命名空间:路径}，例如 {@code minecraft:stone}；worldgen 为相对 data/visualcrafting 的路径 */
     private String recipeId;
 
     /** 编辑时的时间戳（毫秒长整型），用于冲突时最后写入者获胜 */
@@ -42,6 +46,15 @@ public class PendingOperation {
         this.recipeId = recipeId;
         this.timestamp = timestamp;
         this.content = content;
+    }
+
+    /** 内容类型，缺省为 recipe（兼容旧暂存文件） */
+    public String getType() {
+        return type == null || type.isEmpty() ? "recipe" : type;
+    }
+
+    public void setType(String type) {
+        this.type = type;
     }
 
     public String getPlayer() {

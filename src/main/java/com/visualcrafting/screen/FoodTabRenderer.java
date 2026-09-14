@@ -11,6 +11,7 @@ import net.minecraft.core.Registry;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.locale.Language;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.effect.MobEffect;
 
@@ -84,14 +85,14 @@ public class FoodTabRenderer {
         guiGraphics.drawString(font, "Food Editor", x + 20, y + 4, 16766720);
         guiGraphics.renderOutline(x + 93, y + 16, 18, 18, -1);
         guiGraphics.renderOutline(x + 93, y + 39, 18, 18, -1);
-        guiGraphics.drawString(font, "\u98df\u7269", x + 96 - font.width("\u98df\u7269"), y + 20, textColor);
-        guiGraphics.drawString(font, "\u9965\u997f\u503c", x + 140 - font.width("\u9965\u997f\u503c"), y + 19, textColor);
-        guiGraphics.drawString(font, "\u9971\u548c\u5ea6", x + 199 - font.width("\u9971\u548c\u5ea6"), y + 19, textColor);
-        guiGraphics.drawString(font, "\u8fd4\u8fd8\u7269", x + 84 - font.width("\u8fd4\u8fd8\u7269"), y + 45, textColor);
-        guiGraphics.drawString(font, "\u65f6\u957f", x + 133 - font.width("\u65f6\u957f"), y + 44, textColor);
-        guiGraphics.drawString(font, "\u836f\u6548", x + 73 - font.width("\u836f\u6548"), y + 68, textColor);
-        guiGraphics.drawString(font, "\u7b49\u7ea7", x + 197 - font.width("\u7b49\u7ea7"), y + 68, textColor);
-        guiGraphics.drawString(font, "\u98df\u7528\u79d2\u6570", x + 88 - font.width("\u98df\u7528\u79d2\u6570"), y + 91, textColor);
+        guiGraphics.drawString(font, Component.translatable("gui.visualcrafting.mode5.label.food").getString(), x + 96 - font.width(Component.translatable("gui.visualcrafting.mode5.label.food").getString()), y + 20, textColor);
+        guiGraphics.drawString(font, Component.translatable("gui.visualcrafting.mode5.label.hunger").getString(), x + 140 - font.width(Component.translatable("gui.visualcrafting.mode5.label.hunger").getString()), y + 19, textColor);
+        guiGraphics.drawString(font, Component.translatable("gui.visualcrafting.mode5.label.saturation").getString(), x + 199 - font.width(Component.translatable("gui.visualcrafting.mode5.label.saturation").getString()), y + 19, textColor);
+        guiGraphics.drawString(font, Component.translatable("gui.visualcrafting.mode5.label.return_item").getString(), x + 84 - font.width(Component.translatable("gui.visualcrafting.mode5.label.return_item").getString()), y + 45, textColor);
+        guiGraphics.drawString(font, Component.translatable("gui.visualcrafting.mode5.label.duration").getString(), x + 133 - font.width(Component.translatable("gui.visualcrafting.mode5.label.duration").getString()), y + 44, textColor);
+        guiGraphics.drawString(font, Component.translatable("gui.visualcrafting.mode5.label.potion_effects").getString(), x + 73 - font.width(Component.translatable("gui.visualcrafting.mode5.label.potion_effects").getString()), y + 68, textColor);
+        guiGraphics.drawString(font, Component.translatable("gui.visualcrafting.mode5.label.level").getString(), x + 197 - font.width(Component.translatable("gui.visualcrafting.mode5.label.level").getString()), y + 68, textColor);
+        guiGraphics.drawString(font, Component.translatable("gui.visualcrafting.mode5.label.eat_time").getString(), x + 88 - font.width(Component.translatable("gui.visualcrafting.mode5.label.eat_time").getString()), y + 91, textColor);
         this.potionDropdown.render(guiGraphics, x + 93, y + 64, 0.0f);
     }
 }

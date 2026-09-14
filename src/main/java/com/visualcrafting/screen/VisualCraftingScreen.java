@@ -20,6 +20,8 @@ import com.visualcrafting.network.DimensionBiomesData;
 
 import com.visualcrafting.network.ModMessages;
 
+import com.visualcrafting.merge.MergeManager;
+
 import java.io.File;
 
 import java.io.FileInputStream;
@@ -161,7 +163,7 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
      static final int CRAFTING_SLOT_BORDER_COLOR = -1;
 
-     static final String[] TIER_LABELS = new String[]{"\u57fa\u7840", "\u8fdb\u9636", "\u9ad8\u7ea7", "\u7ec8\u6781"};
+     static final String[] TIER_LABELS = new String[]{"gui.visualcrafting.tier.basic", "gui.visualcrafting.tier.advanced", "gui.visualcrafting.tier.elite", "gui.visualcrafting.tier.ultimate"};
 
      static final int CHEM_SLOT_X = 80;
 
@@ -205,13 +207,31 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
      static final ItemStack ICON_VILLAGER = new ItemStack(Items.EMERALD);
 
-     static final ItemStack ICON_FOOD = new ItemStack(Items.COOKED_BEEF);
+          static final ItemStack ICON_FOOD = new ItemStack(Items.COOKED_BEEF);
+
+     static final ItemStack ICON_NAME = new ItemStack(Items.NAME_TAG);
 
      static final int WORLD_HEIGHT = 319;
 
-     static final Field SLOT_X = null;
+     static final Field SLOT_X;
 
-     static final Field SLOT_Y = null;
+     static final Field SLOT_Y;
+
+     static {
+         Field slotX = null;
+         Field slotY = null;
+         try {
+             slotX = Slot.class.getDeclaredField("x");
+             slotY = Slot.class.getDeclaredField("y");
+             slotX.setAccessible(true);
+             slotY.setAccessible(true);
+         }
+         catch (Exception e) {
+             logWarn("Failed to access Slot.x / Slot.y fields via reflection", e);
+         }
+         SLOT_X = slotX;
+         SLOT_Y = slotY;
+     }
 
      int tier = 0;
 
@@ -300,6 +320,8 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
      int invSlotSlotOffsetX = 9;
 
      int invSlotSlotOffsetY = 21;
+
+     boolean saveNbtOnCraft = false;
 
      int outSlotLineOffsetX = -1;
 
@@ -433,7 +455,66 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
     Button mode5BtnRefresh;
 
-    Checkbox mode5InfiniteCheckbox;
+        Checkbox mode5InfiniteCheckbox;
+
+    // ===================== Mode 6: 命名牌标签页（名称 / 描述 + RGB 拾色器） =====================
+    String mode6NameInput = "";
+
+    static final int MODE6_LORE_VISIBLE = 4;
+
+    static final int MODE6_LORE_MAX = 25;
+
+    final java.util.List<String> mode6LoreLines = new java.util.ArrayList<>(java.util.Arrays.asList("", "", "", ""));
+
+    final int[] mode6LoreColors = new int[MODE6_LORE_MAX];
+
+    final boolean[] mode6LoreRainbow = new boolean[MODE6_LORE_MAX];
+
+    int mode6NameColor = -1;
+
+    boolean mode6NameRainbow = false;
+
+    boolean mode6Glow = false;
+
+    final boolean[] mode6NameFonts = new boolean[4];
+
+    final boolean[][] mode6LoreFonts = new boolean[MODE6_LORE_MAX][4];
+
+    int mode6LoreScroll = 0;
+
+    boolean mode6LoreRefreshing = false;
+
+    int mode6FontTarget = -1;
+
+    EditBox mode6NameEdit;
+
+    final EditBox[] mode6LoreEdits = new EditBox[MODE6_LORE_VISIBLE];
+
+    final Button[] mode6FontButtons = new Button[4];
+
+    Button mode6BtnSave;
+
+    Button mode6BtnDelete;
+
+    Button mode6BtnConfig;
+
+    Button mode6BtnGlow;
+
+    EditBox mode6PickerHexEdit;
+
+    boolean mode6PickerOpen = false;
+
+    int mode6PickerTarget = -2;
+
+    int mode6PickerColor = 0xFFFFFF;
+
+    static final int[] NAME_PALETTE = new int[]{
+            0x000000, 0x0000AA, 0x00AA00, 0x00AAAA, 0xAA0000, 0xAA00AA, 0xFFAA00, 0xAAAAAA,
+            0x555555, 0x5555FF, 0x55FF55, 0x55FFFF, 0xFF5555, 0xFF55FF, 0xFFFF55, 0xFFFFFF,
+            0x880000, 0xCC0000, 0xFF3333, 0xFF7777, 0xFFBBBB, 0x880044, 0xCC0055, 0xFF0077,
+            0xFF44AA, 0xFF88CC, 0x884400, 0xCC6600, 0xFF8800, 0xFFAA44, 0xFFCC88, 0x888800,
+            0xCCCC00, 0xEEEE33, 0xFFFF66, 0x88AA00, 0xAACC33, 0xCCEE66, 0x008800, 0x00CC00
+    };
 
     boolean mode5AlwaysEdible;
 
@@ -772,7 +853,7 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
             VisualCraftingBlockEntity visualCraftingBlockEntity = (VisualCraftingBlockEntity)blockEntity;
 
-            this.mode = visualCraftingBlockEntity.getMode();
+            this.mode = VisualCraftingBlockEntity.normalizeMode(visualCraftingBlockEntity.getMode());
 
             this.tier = visualCraftingBlockEntity.getTier();
 
@@ -821,9 +902,24 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
             this.initMode5Widgets();
 
-        } else if (this.mode == 1 || this.mode == 2) {
+                } else if (this.mode == 1 || this.mode == 2) {
 
             this.initInfusingWidgets();
+
+        } else if (this.mode == 6) {
+
+            this.initNameWidgets();
+
+        } else {
+
+            // 兜底：非法模式（例如旧存档里被写成 4 的值）统一回退到合成界面
+            this.mode = VisualCraftingBlockEntity.MODE_CRAFTING;
+
+            this.menu.setCurrentMode(this.mode);
+
+            this.menu.updateSlotPositions(this.tier);
+
+            this.initCraftingWidgets();
 
         }
 
@@ -869,7 +965,7 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
             if (bl2) {
 
-                PacketDistributor.sendToServer(new ModMessages.AddRecipePacket(this.menu.blockPos, shaped, slot.getItem().copy(), arrayList), new CustomPacketPayload[0]);
+                PacketDistributor.sendToServer(new ModMessages.AddRecipePacket(this.menu.blockPos, shaped, slot.getItem().copy(), arrayList, this.saveNbtOnCraft), new CustomPacketPayload[0]);
 
             }
 
@@ -953,15 +1049,15 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
         if (itemStack3.isEmpty() && visualCraftingMenu.chemSlotData == null) {
 
-            this.showStatus("\u5316\u5b66\u54c1\u4e0d\u80fd\u4e3a\u7a7a\u2014\u2014\u8bf7\u5148\u4ece JEI \u62d6\u62fd\u9009\u62e9");
+            this.showStatus(Component.translatable("gui.visualcrafting.status.chem_empty").getString());
 
         } else if (itemStack2.isEmpty()) {
 
-            this.showStatus("\u7269\u54c1\u8f93\u5165\u4e0d\u80fd\u4e3a\u7a7a\u2014\u2014\u8bf7\u5148\u653e\u5165\u7269\u54c1");
+            this.showStatus(Component.translatable("gui.visualcrafting.status.input_empty").getString());
 
         } else if (itemStack.isEmpty()) {
 
-            this.showStatus("\u8f93\u51fa\u4e0d\u80fd\u4e3a\u7a7a\u2014\u2014\u8bf7\u5148\u653e\u5165\u8f93\u51fa\u7269\u54c1");
+            this.showStatus(Component.translatable("gui.visualcrafting.status.output_empty").getString());
 
         } else {
 
@@ -1023,13 +1119,13 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
             if (chemSlotData == null) {
 
-                this.showStatus("\u5316\u5b66\u54c1\u6570\u636e\u65e0\u6548");
+                this.showStatus(Component.translatable("gui.visualcrafting.status.chem_invalid").getString());
 
             } else {
 
                 PacketDistributor.sendToServer(new ModMessages.AddInfusingRecipePacket(visualCraftingMenu.blockPos, itemStack3.copy(), itemStack2.copy(), itemStack.copy(), chemAmount), new CustomPacketPayload[0]);
 
-                this.showStatus("\u704c\u6ce8\u914d\u65b9\u5df2\u751f\u6210");
+                this.showStatus(Component.translatable("gui.visualcrafting.status.infusing_created").getString());
 
             }
 
@@ -1650,7 +1746,7 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
             if (this.mode2BiomesByDim.containsKey("__all__")) {
 
-                arrayList.add("\u5168\u90e8\u7fa4\u7cfb");
+                arrayList.add(Language.getInstance().getOrDefault("gui.visualcrafting.label.all_biomes"));
 
             }
 
@@ -1658,7 +1754,7 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
                 arrayList.clear();
 
-                arrayList.add("\u52a0\u8f7d\u4e2d...");
+                arrayList.add(Language.getInstance().getOrDefault("gui.visualcrafting.label.loading"));
 
             }
 
@@ -1690,7 +1786,7 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
                 arrayList.clear();
 
-                arrayList.add("\u52a0\u8f7d\u4e2d...");
+                arrayList.add(Language.getInstance().getOrDefault("gui.visualcrafting.label.loading"));
 
             }
 
@@ -1712,11 +1808,11 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
             if (!string4.isEmpty() && file.exists()) {
 
-                this.mode2BtnMineralGen.setMessage(Component.literal("\u66f4\u65b0\u77ff\u7269"));
+                this.mode2BtnMineralGen.setMessage(Component.translatable("gui.visualcrafting.label.update_mineral"));
 
             } else {
 
-                this.mode2BtnMineralGen.setMessage(Component.literal("\u77ff\u7269\u751f\u6210"));
+                this.mode2BtnMineralGen.setMessage(Component.translatable("gui.visualcrafting.mode2.mineral_gen"));
 
             }
 
@@ -1756,13 +1852,13 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
         if (string.isEmpty()) {
 
-            this.showStatus("\u77ff\u7269\u69fd\u4e3a\u7a7a");
+            this.showStatus(Component.translatable("gui.visualcrafting.status.mineral_slot_empty").getString());
 
         } else {
 
             this.buildAndWriteOreGenFiles(string);
 
-            this.showStatus("\u5df2\u751f\u6210\u77ff\u7269\u751f\u6210\u914d\u7f6e");
+            this.showStatus(Component.translatable("gui.visualcrafting.status.mineral_created").getString() + " | " + Component.translatable("gui.visualcrafting.status.reload_hint").getString());
 
             this.updateMode2ButtonLabels();
 
@@ -1772,17 +1868,22 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
     private void onMode2BanGen(Button button) {
 
+        // WIP 提示：原常驻标记已取消，改为点击本按钮时提示
+        if (this.minecraft != null && this.minecraft.player != null) {
+            this.minecraft.player.displayClientMessage(Component.literal("WIP"), false);
+        }
+
         String string = this.getItemBlockId(this.menu.slots.get(0).getItem());
 
         if (string.isEmpty()) {
 
-            this.showStatus("\u77ff\u7269\u69fd\u4e3a\u7a7a");
+            this.showStatus(Component.translatable("gui.visualcrafting.status.mineral_slot_empty").getString());
 
         } else {
 
             this.removeOreGenFiles();
 
-            this.showStatus("\u5df2\u79fb\u9664\u77ff\u7269\u751f\u6210\u914d\u7f6e");
+            this.showStatus(Component.translatable("gui.visualcrafting.status.mineral_removed").getString() + " | " + Component.translatable("gui.visualcrafting.status.reload_hint").getString());
 
             this.updateMode2ButtonLabels();
 
@@ -1818,13 +1919,13 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
             this.buildAndWriteOreGenFiles(string);
 
-            this.showStatus("\u914d\u7f6e\u5df2\u4fdd\u5b58\uff0c\u751f\u6210\u914d\u7f6e\u5df2\u66f4\u65b0");
+            this.showStatus(Component.translatable("gui.visualcrafting.status.config_saved").getString() + " | " + Component.translatable("gui.visualcrafting.status.reload_hint").getString());
 
             this.updateMode2ButtonLabels();
 
         } else {
 
-            this.showStatus("\u914d\u7f6e\u5df2\u4fdd\u5b58\uff08\u77ff\u7269\u69fd\u4e3a\u7a7a\uff0c\u672a\u751f\u6210\u4e16\u754c\u751f\u6210\u6587\u4ef6\uff09");
+            this.showStatus(Component.translatable("gui.visualcrafting.status.config_saved_no_ore").getString() + " | " + Component.translatable("gui.visualcrafting.status.reload_hint").getString());
 
         }
 
@@ -1886,7 +1987,7 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
                     file = this.minecraft.gameDirectory.toPath().resolve("datapacks/visualcrafting").toFile();
 
-                    this.showStatus("\u6ce8\u610f\uff1a\u591a\u4eba\u670d\u52a1\u5668\u4e0a\u6570\u636e\u5305\u5c06\u5199\u5165\u5ba2\u6237\u7aef\u672c\u5730\uff0c\u8bf7\u5728\u670d\u52a1\u7aef\u624b\u52a8\u90e8\u7f72");
+                    this.showStatus(Component.translatable("gui.visualcrafting.status.singleplayer_note").getString());
 
                 } else {
 
@@ -1920,8 +2021,50 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
     }
 
-    public void ensureDatapackExists() {
+    /** 当前玩家 UUID（客户端本地玩家），单机/局域网模式可用 */
+    private String currentPlayerId() {
+        if (this.minecraft != null && this.minecraft.player != null) {
+            return this.minecraft.player.getUUID().toString();
+        }
+        return "local";
+    }
 
+    /** 单机/局域网世界根目录下的 visualcrafting/pending 暂存目录 */
+    private File getPendingDir() {
+        if (this.minecraft != null && this.minecraft.getSingleplayerServer() != null) {
+            return this.minecraft.getSingleplayerServer()
+                    .getWorldPath(LevelResource.ROOT).resolve("visualcrafting").resolve("pending").toFile();
+        }
+        return new File(this.getDatapackDir().getParentFile().getParentFile(),
+                "visualcrafting/pending");
+    }
+
+    /**
+     * 将 GUI 生成的内容写入 pending 暂存目录，由 MergeManager 在启动/reload 时按类型合并输出。
+     * 文件名规则：{玩家UUID}_{类型}_{recipeId脱敏}.json
+     */
+    private void writePending(String type, String recipeId, JsonObject content) {
+        try {
+            File pendingDir = this.getPendingDir();
+            pendingDir.mkdirs();
+            String safeRecipe = recipeId.replaceAll("[^A-Za-z0-9_/.-]", "_").replace('/', '_').replace('.', '_');
+            String fileName = this.currentPlayerId() + "_" + type + "_" + safeRecipe + ".json";
+            JsonObject root = new JsonObject();
+            root.addProperty("player", this.currentPlayerId());
+            root.addProperty("type", type);
+            root.addProperty("recipeId", recipeId);
+            root.addProperty("timestamp", System.currentTimeMillis());
+            root.add("content", content);
+            Files.writeString(new File(pendingDir, fileName).toPath(),
+                    new GsonBuilder().setPrettyPrinting().create().toJson(root), StandardCharsets.UTF_8);
+        }
+        catch (Exception exception) {
+            VisualCraftingScreen.logWarn("Failed to write pending for " + recipeId, exception);
+        }
+    }
+
+
+    public void ensureDatapackExists() {
         Object object;
 
         File file = this.getDatapackDir();
@@ -1964,10 +2107,6 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
         }
 
-        this.ensureDatapackExists();
-
-        File file = this.getDatapackDataDir();
-
         String string2 = this.getItemBlockId(this.menu.slots.get(1).getItem());
 
         List<String> list = this.gatherSelectedBiomeIds();
@@ -1982,9 +2121,13 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
             String string4 = "visualcrafting:visualcrafting_ore_mineral_" + string3;
 
-            this.writeConfiguredFeature(file, gson, string4, string, veinSize, "visualcrafting_ore_mineral_" + string3);
+            JsonObject mineralConfigured = this.buildConfiguredFeature(gson, string4, string, veinSize);
 
-            Object object = "";
+            this.writePending(MergeManager.TYPE_WORLDGEN, "worldgen/configured_feature/visualcrafting_ore_mineral_" + string3, mineralConfigured);
+
+            JsonObject byproductConfigured = null;
+
+            String object = "";
 
             if (!string2.isEmpty()) {
 
@@ -1992,27 +2135,37 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
                 object = "visualcrafting:visualcrafting_ore_byproduct_" + string3;
 
-                this.writeConfiguredFeature(file, gson, (String)object, string2, byproductVein, "visualcrafting_ore_byproduct_" + string3);
+                byproductConfigured = this.buildConfiguredFeature(gson, (String)object, string2, byproductVein);
+
+                this.writePending(MergeManager.TYPE_WORLDGEN, "worldgen/configured_feature/visualcrafting_ore_byproduct_" + string3, byproductConfigured);
 
             }
 
-            this.writePlacedFeature(file, gson, string4, this.mode2MineralCountMin, this.mode2MineralCountMax, this.mode2MinY, this.mode2MaxY, "visualcrafting_ore_mineral_" + string3);
+            JsonObject mineralPlaced = this.buildPlacedFeature(gson, string4, this.mode2MineralCountMin, this.mode2MineralCountMax, this.mode2MinY, this.mode2MaxY, "visualcrafting_ore_mineral_" + string3);
+
+            this.writePending(MergeManager.TYPE_WORLDGEN, "worldgen/placed_feature/visualcrafting_ore_mineral_" + string3, mineralPlaced);
 
             if (!string2.isEmpty()) {
 
-                this.writePlacedFeature(file, gson, (String)object, this.mode2ByproductCountMin, this.mode2ByproductCountMax, this.mode2MinY, this.mode2MaxY, "visualcrafting_ore_byproduct_" + string3);
+                JsonObject byproductPlaced = this.buildPlacedFeature(gson, (String)object, this.mode2ByproductCountMin, this.mode2ByproductCountMax, this.mode2MinY, this.mode2MaxY, "visualcrafting_ore_byproduct_" + string3);
+
+                this.writePending(MergeManager.TYPE_WORLDGEN, "worldgen/placed_feature/visualcrafting_ore_byproduct_" + string3, byproductPlaced);
 
             }
 
-            this.mergeBiomeModifier(file, gson, list, string4, (String)object);
+            JsonObject biomeModifier = this.buildBiomeModifier(gson, list, string4, (String)object);
 
-            this.writeBiomeModifierTag(file, gson);
+            this.writePending(MergeManager.TYPE_WORLDGEN, "neoforge/biome_modifier/add_visualcrafting_ore", biomeModifier);
+
+            JsonObject biomeModifierTag = this.buildBiomeModifierTag();
+
+            this.writePending(MergeManager.TYPE_WORLDGEN, "neoforge/tags/worldgen/biome_modifier/visualcrafting_ore", biomeModifierTag);
 
         }
 
         catch (Exception exception) {
 
-            this.showStatus("\u751f\u6210\u5931\u8d25: " + exception.getMessage());
+            this.showStatus(Component.translatable("gui.visualcrafting.mode5.status.generate_failed", exception.getMessage()).getString());
 
         }
 
@@ -2044,11 +2197,7 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
     }
 
-    public void writeConfiguredFeature(File file, Gson gson, String modid, String blockId, int veinSize, String targetBlock) throws IOException {
-
-        File file2 = new File(file, "worldgen/configured_feature");
-
-        file2.mkdirs();
+    public JsonObject buildConfiguredFeature(Gson gson, String modid, String blockId, int veinSize) {
 
         JsonObject jsonObject = new JsonObject();
 
@@ -2084,21 +2233,11 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
         jsonObject.add("config", jsonObject2);
 
-        File file3 = new File(file2, targetBlock + ".json");
-
-        try (FileWriter fileWriter = new FileWriter(file3, StandardCharsets.UTF_8);){
-
-            gson.toJson(jsonObject, fileWriter);
-
-        }
+        return jsonObject;
 
     }
 
-    public void writePlacedFeature(File file, Gson gson, String modid, int veinSize, int veinsPerChunk, int minY, int maxY, String targetBlock) throws IOException {
-
-        File file2 = new File(file, "worldgen/placed_feature");
-
-        file2.mkdirs();
+    public JsonObject buildPlacedFeature(Gson gson, String modid, int veinSize, int veinsPerChunk, int minY, int maxY, String targetBlock) {
 
         JsonObject jsonObject = new JsonObject();
 
@@ -2160,30 +2299,20 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
         jsonObject.add("placement", jsonArray);
 
-        File file3 = new File(file2, modid + ".json");
-
-        try (FileWriter fileWriter = new FileWriter(file3, StandardCharsets.UTF_8);){
-
-            gson.toJson(jsonObject, fileWriter);
-
-        }
+        return jsonObject;
 
     }
 
 
-    public void mergeBiomeModifier(File file, Gson gson, List<String> list, String string, String string2) throws IOException {
+    public JsonObject buildBiomeModifier(Gson gson, List<String> list, String string, String string2) {
 
         JsonArray jsonArray;
 
         JsonObject jsonObject;
 
-        File file2 = new File(file, "neoforge/biome_modifier");
-
-        file2.mkdirs();
-
-        File file3 = new File(file2, "add_visualcrafting_ore.json");
-
         LinkedHashSet<String> linkedHashSet = new LinkedHashSet<String>();
+
+        File file3 = new File(this.getDatapackDataDir(), "neoforge/biome_modifier/add_visualcrafting_ore.json");
 
         if (file3.exists()) {
 
@@ -2253,21 +2382,11 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
         jsonObject.addProperty("step", "underground_ores");
 
-        try (FileWriter fileWriter = new FileWriter(file3, StandardCharsets.UTF_8);){
-
-            gson.toJson(jsonObject, fileWriter);
-
-        }
+        return jsonObject;
 
     }
 
-    public void writeBiomeModifierTag(File file, Gson gson) throws IOException {
-
-        File file2 = new File(file.getParentFile(), "neoforge/tags/worldgen/biome_modifier");
-
-        file2.mkdirs();
-
-        File file3 = new File(file2, "visualcrafting_ore.json");
+    public JsonObject buildBiomeModifierTag() {
 
         JsonObject jsonObject = new JsonObject();
 
@@ -2279,11 +2398,7 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
         jsonObject.add("values", jsonArray);
 
-        try (FileWriter fileWriter = new FileWriter(file3, StandardCharsets.UTF_8);){
-
-            gson.toJson(jsonObject, fileWriter);
-
-        }
+        return jsonObject;
 
     }
 
@@ -2322,9 +2437,7 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
                         }
                     }
                 }
-                try (FileWriter writer = new FileWriter(cfgFile, StandardCharsets.UTF_8)) {
-                    gson.toJson(root, writer);
-                }
+                this.writePending(MergeManager.TYPE_WORLDGEN, "worldgen/configured_feature/" + featureId, root);
             } catch (Exception e) {
                 LOGGER.warn("Failed to disable configured_feature: {}", featureId, e);
             }
@@ -2569,13 +2682,13 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
         ItemStack itemStack = this.menu.slots.get(81).getItem().copy();
 
-        this.mode = newMode;
-
         PacketDistributor.sendToServer(new ModMessages.ModeUpdatePacket(this.menu.blockPos, newMode), new CustomPacketPayload[0]);
 
         this.markedContainer = ItemStack.EMPTY;
 
         this.readBEState();
+
+        this.mode = newMode;
 
         this.tier = 0;
 
@@ -2655,9 +2768,19 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
         guiGraphics.blit(TAB_FOOD, tabFoodIconX, craftIconY, 0.0f, 0.0f, 16, 16, 16, 16);
 
-        if (this.mode == 5) {
+                if (this.mode == 5) {
 
             guiGraphics.renderOutline(tabStartX + (tabWidth + tabGap) * 3, tabStartY, tabWidth, tabHeight, -256);
+
+        }
+
+        int tabNameIconX = tabStartX + (tabWidth + tabGap) * 4 + 5;
+
+        guiGraphics.renderItem(ICON_NAME, tabNameIconX, craftIconY);
+
+        if (this.mode == 6) {
+
+            guiGraphics.renderOutline(tabStartX + (tabWidth + tabGap) * 4, tabStartY, tabWidth, tabHeight, -256);
 
         }
 
@@ -2691,9 +2814,13 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
             this.renderInfuseList(guiGraphics, mouseX, mouseY);
 
-        } else if (this.mode == 5) {
+                } else if (this.mode == 5) {
 
             this.renderMode5Extras(guiGraphics);
+
+        } else if (this.mode == 6) {
+
+            this.renderNameExtras(guiGraphics, mouseX, mouseY);
 
         } else {
 
@@ -2731,7 +2858,7 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
         int listY = this.topPos + 13 + this.recipesOffsetY;
 
-        guiGraphics.drawString(this.font, "\u914d\u65b9 (" + this.recipes.size() + ")", listX, listY - 14, 0x404040, false);
+        guiGraphics.drawString(this.font, Component.translatable("gui.visualcrafting.label.recipes_count", this.recipes.size()).getString(), listX, listY - 14, 0x404040, false);
 
         int itemsPerPage = 7;
 
@@ -2825,7 +2952,14 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
     }
 
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        public boolean mouseClicked(double mouseX, double mouseY, int button) {
+
+        if (this.mode == 6 && this.mode6PickerOpen) {
+            if (this.mode6PickerClick(mouseX, mouseY, button)) {
+                return true;
+            }
+            this.mode6ClosePicker();
+        }
 
         int tabWidth = 24;
 
@@ -2871,13 +3005,31 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
         }
 
-        if (mouseX >= (double)(tabStartX + (tabWidth + tabGap) * 3) && mouseX < (double)(tabStartX + (tabWidth + tabGap) * 3 + tabWidth) && mouseY >= (double)tabStartY && mouseY < (double)(tabStartY + 24)) {
+                if (mouseX >= (double)(tabStartX + (tabWidth + tabGap) * 3) && mouseX < (double)(tabStartX + (tabWidth + tabGap) * 3 + tabWidth) && mouseY >= (double)tabStartY && mouseY < (double)(tabStartY + 24)) {
 
             if (this.mode != 5) {
 
-                this.switchMode(5);
+                        this.switchMode(5);
 
             }
+
+            return true;
+
+        }
+
+        if (mouseX >= (double)(tabStartX + (tabWidth + tabGap) * 4) && mouseX < (double)(tabStartX + (tabWidth + tabGap) * 4 + tabWidth) && mouseY >= (double)tabStartY && mouseY < (double)(tabStartY + 24)) {
+
+            if (this.mode != 6) {
+
+                        this.switchMode(6);
+
+            }
+
+            return true;
+
+        }
+
+        if (this.mode == 6 && this.mode6SwatchClick(mouseX, mouseY)) {
 
             return true;
 
@@ -2889,9 +3041,11 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
             int chemSlotY = this.getChemSlotY();
 
-            if (mouseX >= (double)chemSlotX && mouseX < (double)(chemSlotX + 22) && mouseY >= (double)chemSlotY && mouseY < (double)(chemSlotY + 22)) {
+            if (mouseX >= (double)chemSlotX && mouseX < (double)(chemSlotX + 18) && mouseY >= (double)chemSlotY && mouseY < (double)(chemSlotY + 18)) {
 
                 this.menu.chemSlotData = null;
+
+                this.selectedChemical = ItemStack.EMPTY;
 
                 return true;
 
@@ -2948,6 +3102,50 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
             }
 
             return true;
+
+        }
+
+        if (this.mode == 5 && button == 0) {
+
+            int ml = this.leftPos;
+
+            int mt = this.topPos;
+
+            String infiniteLabel = Component.translatable("gui.visualcrafting.mode5.label.infinite").getString();
+
+            int infiniteX = ml + 173;
+
+            int infiniteW = 12 + this.font.width(infiniteLabel);
+
+            if (mouseX >= (double)infiniteX && mouseX < (double)(infiniteX + infiniteW) && mouseY >= (double)(mt + 44) && mouseY < (double)(mt + 54)) {
+
+                this.mode5DurationInfinite = !this.mode5DurationInfinite;
+
+                if (this.mode5DurationEdit != null) {
+
+                    this.mode5DurationEdit.setEditable(!this.mode5DurationInfinite);
+
+                    this.mode5DurationEdit.setValue(this.mode5DurationInfinite ? "" : String.valueOf(this.mode5Duration));
+
+                }
+
+                return true;
+
+            }
+
+            String alwaysText = (this.mode5AlwaysEdible ? "\u2611 " : "\u25A1 ") + Component.translatable("gui.visualcrafting.label.ignore_saturation").getString();
+
+            int alwaysX = ml + 122;
+
+            int alwaysW = this.font.width(alwaysText);
+
+            if (mouseX >= (double)alwaysX && mouseX < (double)(alwaysX + alwaysW) && mouseY >= (double)(mt + 91) && mouseY < (double)(mt + 101)) {
+
+                this.mode5AlwaysEdible = !this.mode5AlwaysEdible;
+
+                return true;
+
+            }
 
         }
 
@@ -3191,6 +3389,30 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
         }
 
+        if (this.mode == 6 && this.mode6PickerOpen) {
+
+            guiGraphics.flush();
+
+            RenderSystem.disableDepthTest();
+
+            guiGraphics.pose().pushPose();
+
+            guiGraphics.pose().translate(0.0F, 0.0F, 300.0F);
+
+            this.renderNamePicker(guiGraphics, mouseX, mouseY);
+
+            if (this.mode6PickerHexEdit != null && this.mode6PickerHexEdit.isVisible()) {
+
+                this.mode6PickerHexEdit.render(guiGraphics, mouseX, mouseY, partialTicks);
+
+            }
+
+            guiGraphics.pose().popPose();
+
+            RenderSystem.enableDepthTest();
+
+        }
+
         this.renderTooltip(guiGraphics, mouseX, mouseY);
 
         if (this.mode == 1) {
@@ -3272,6 +3494,9 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
     }
 
     public void onClose() {
+
+        // 关闭界面统一复位：模式回到合成、tier 归零，重新打开即为合成界面
+        PacketDistributor.sendToServer(new ModMessages.ModeUpdatePacket(this.menu.blockPos, VisualCraftingBlockEntity.MODE_CRAFTING), new CustomPacketPayload[0]);
 
         PacketDistributor.sendToServer(new ModMessages.TierUpdatePacket(this.menu.blockPos, 0), new CustomPacketPayload[0]);
 
@@ -3575,6 +3800,11 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
     }
 
+    int autoButtonWidth(Component label) {
+        int textWidth = this.font.width(label);
+        return Math.max(46, Math.min(84, textWidth + 10));
+    }
+
     void renderInfusingExtras(GuiGraphics guiGraphics) {
 
         int inputX = this.infInputAbsX();
@@ -3596,78 +3826,104 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
         VisualCraftingScreen.drawOutline(guiGraphics, chemX, chemY, 18, 18, -1);
 
         int chemColor = -8355712;
-
         ChemSlotData chemSlotData = this.menu.chemSlotData;
-
+        boolean chemMarked = chemSlotData != null || !this.selectedChemical.isEmpty();
         if (chemSlotData != null) {
-
             chemColor = chemSlotData.tintColor;
-
-        } else {
-
+        } else if (!this.selectedChemical.isEmpty()) {
             try {
-
                 CompoundTag compoundTag = MekanismIntegration.getChemicalTagFromItem(this.selectedChemical);
-
                 if (compoundTag != null) {
-
                     chemColor = MekanismIntegration.getChemicalColorFromTag(compoundTag);
-
                 }
-
             }
-
             catch (Throwable throwable) {
-
                 VisualCraftingScreen.logWarn("Mekanism not available, skipping infusion extras chemical rendering", throwable);
-
             }
-
         }
-
+        if (chemColor == 0) {
+            // tint 反射兜底失败时使用醒目青色，保证已标记状态可见
+            chemColor = 0x00D8FF;
+        }
+        int fillAlpha = chemMarked ? 0xE0000000 : 0x28000000;
         RenderSystem.enableBlend();
-
-        guiGraphics.fill(chemX + 1, chemY + 1, chemX + 17, chemY + 17, Integer.MIN_VALUE | chemColor & 0xFFFFFF);
-
+        guiGraphics.fill(chemX + 1, chemY + 1, chemX + 17, chemY + 17, fillAlpha | chemColor & 0xFFFFFF);
         RenderSystem.disableBlend();
-
+        ItemStack markStack = this.selectedChemical;
+        if (markStack.isEmpty() && chemSlotData != null) {
+            try {
+                CompoundTag tag = new CompoundTag();
+                tag.putString("chemicalId", chemSlotData.chemicalId);
+                tag.putLong("amount", this.menu.chemAmount);
+                markStack = MekanismIntegration.createChemicalTagItem(tag);
+            }
+            catch (Throwable throwable) {
+                VisualCraftingScreen.logWarn("Mekanism not available, skipping chemical mark icon", throwable);
+            }
+        }
+        // 化学品载体是 BARRIER + CUSTOM_DATA 的幽灵物品，直接 renderItem 会画出屏障图标，
+        // 因此化学品标记只保留 tint 底色块 + 同色描边，不渲染载体物品本身。
+        boolean chemCarrier = !markStack.isEmpty()
+                && !MekanismIntegration.getChemicalTagFromItem(markStack).isEmpty();
+        if (chemMarked && !markStack.isEmpty() && !chemCarrier) {
+            guiGraphics.renderItem(markStack, chemX + 1, chemY + 1);
+        } else if (chemMarked) {
+            // 已标记：绘制化学品贴图（tint 着色）+ 同色描边；不渲染 BARRIER 载体、也不再画问号
+            String markedChemicalId = chemSlotData != null ? chemSlotData.chemicalId : null;
+            if (markedChemicalId == null || markedChemicalId.isEmpty()) {
+                markedChemicalId = MekanismIntegration.getChemicalTagFromItem(markStack).getString("chemicalId");
+            }
+            MekanismIntegration.renderChemicalIcon(guiGraphics, markedChemicalId, chemColor, chemX + 1, chemY + 1);
+            VisualCraftingScreen.drawOutline(guiGraphics, chemX, chemY, 18, 18, 0xFF000000 | (chemColor & 0xFFFFFF));
+        }
         int currentChemAmount = this.menu.chemAmount;
-
+        if (currentChemAmount < 0) {
+            currentChemAmount = 0;
+        }
         String amountText = currentChemAmount + "mB";
 
-        guiGraphics.drawString(this.font, amountText, chemX + this.chemLabelX, chemY + this.chemLabelY, 0x404040, false);
+        guiGraphics.drawString(this.font, Component.translatable("gui.visualcrafting.label.input").getString(), inputX + this.inputLabelX, inputY + this.inputLabelY, 0x404040, false);
 
-        guiGraphics.drawString(this.font, "\u8f93\u5165", inputX + this.inputLabelX, inputY + this.inputLabelY, 0x404040, false);
-
-        guiGraphics.drawString(this.font, "\u8f93\u51fa", outputX + this.outputLabelX, outputY + this.outputLabelY, 0x404040, false);
+        guiGraphics.drawString(this.font, Component.translatable("gui.visualcrafting.label.output").getString(), outputX + this.outputLabelX, outputY + this.outputLabelY, 0x404040, false);
 
     }
 
     void renderMode2Extras(GuiGraphics guiGraphics) {
-        // Table layout constants
-        int tableY = this.topPos + 106;
-        int rowH = 44, rowGap = 2;
-        int slotSize = 36;
-        int nameW = 60;
-        int colNameX = this.leftPos + 8 + slotSize + 8;
-        int nameYOff = (rowH - 9) / 2;
-        int editW = 46;
-        int colMinX = colNameX + nameW + 8;
+        // ===== Mode2 compact painting (baseline: bak_20260723_GUI_OK) =====
+        // Column headers: dimension/biome above dropdowns, layer above y-range edits
+        guiGraphics.drawString(this.font, Component.translatable("gui.visualcrafting.mode2.col.biome").getString(), this.leftPos + 67 + this.mode2OffsetX, this.topPos + 7, 0x404040, false);
+        guiGraphics.drawString(this.font, Component.translatable("gui.visualcrafting.mode2.col.layer").getString(), this.leftPos + 63 + this.mode2OffsetX, this.topPos + 106, 0x404040, false);
+        guiGraphics.drawString(this.font, "~", this.leftPos + 136 + this.mode2OffsetX, this.topPos + 106, 0xFFFFFF, false);
 
-        // Row 0: mineral
-        guiGraphics.drawString(this.font, "矿石数量", colNameX, tableY + nameYOff, 0x404040, false);
-        guiGraphics.drawString(this.font, "~", colMinX + editW + 2, tableY + nameYOff, 0xFFFFFF, false);
+        int invOffX = this.invLineOffsetX;
+        int invOffY = this.invLineOffsetY;
+        int slotX = this.leftPos + 71 + this.mode2OffsetX;
+        int mineralY = this.topPos + 42;
+        int byproductY = this.topPos + 70;
+        int labelX = slotX + invOffX - 11;
+        int labelStep = 9;
 
-        // Row 1: byproduct
-        int row1Y = tableY + rowH + rowGap;
-        guiGraphics.drawString(this.font, "副产物", colNameX, row1Y + nameYOff, 0x404040, false);
-        guiGraphics.drawString(this.font, "~", colMinX + editW + 2, row1Y + nameYOff, 0xFFFFFF, false);
+        // Mineral row: vertical "矿/物" label, 18x18 slot outline, amount header, pct below slot
+        guiGraphics.drawString(this.font, Component.translatable("gui.visualcrafting.mode2.vert.ore.1").getString(), labelX, mineralY + invOffY + 1, 0x404040, false);
+        guiGraphics.drawString(this.font, Component.translatable("gui.visualcrafting.mode2.vert.ore.2").getString(), labelX, mineralY + invOffY + 1 + labelStep, 0x404040, false);
+        guiGraphics.renderOutline(slotX + invOffX, mineralY + invOffY, 18, 18, -1);
+        guiGraphics.drawString(this.font, Component.translatable("gui.visualcrafting.mode2.col.amount").getString(), this.leftPos + 91 + this.mode2OffsetX, this.topPos + 43, 0x404040, false);
+        String mineralPctText = this.mode2MineralPct + "%";
+        guiGraphics.drawString(this.font, mineralPctText, slotX + 9 - this.font.width(mineralPctText) / 2, this.topPos + 61, 0xFFFFFF, false);
+        guiGraphics.drawString(this.font, "~", this.leftPos + 136 + this.mode2OffsetX, this.topPos + 47, 0xFFFFFF, false);
 
-        // Row 2: height range
-        int row2Y = row1Y + rowH + rowGap;
-        guiGraphics.drawString(this.font, "高度范围", colNameX, row2Y + nameYOff, 0x404040, false);
-        guiGraphics.drawString(this.font, "~", colMinX + editW + 2, row2Y + nameYOff, 0xFFFFFF, false);
+        // Byproduct row: vertical "伴/生" label, 18x18 slot outline, amount header, pct below slot
+        guiGraphics.drawString(this.font, Component.translatable("gui.visualcrafting.mode2.vert.by.1").getString(), labelX, byproductY + invOffY + 1, 0x404040, false);
+        guiGraphics.drawString(this.font, Component.translatable("gui.visualcrafting.mode2.vert.by.2").getString(), labelX, byproductY + invOffY + 1 + labelStep, 0x404040, false);
+        guiGraphics.renderOutline(slotX + invOffX, byproductY + invOffY, 18, 18, -1);
+        guiGraphics.drawString(this.font, Component.translatable("gui.visualcrafting.mode2.col.amount").getString(), this.leftPos + 91 + this.mode2OffsetX, this.topPos + 77, 0x404040, false);
+        String byproductPctText = this.mode2ByproductPct + "%";
+        guiGraphics.drawString(this.font, byproductPctText, slotX + 9 - this.font.width(byproductPctText) / 2, this.topPos + 88, 0xFFFFFF, false);
+        guiGraphics.drawString(this.font, "~", this.leftPos + 135 + this.mode2OffsetX, this.topPos + 80, 0xFFFFFF, false);
+
+        // WIP 标记已取消常驻显示，改为点击「禁止生成」按钮时提示（见 onMode2BanGen）
     }
+
 
     private void syncMode5FromSlot0() {
 
@@ -3821,28 +4077,26 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
         // Labels
         this.drawWrapped(guiGraphics, this.font, Component.translatable("gui.visualcrafting.mode5.label.food"), gl + 72, gt + 20, 55, 4210752);
-        this.drawWrapped(guiGraphics, this.font, Component.translatable("gui.visualcrafting.mode5.label.hunger"), gl + 116, gt + 19, 55, 4210752);
-        this.drawWrapped(guiGraphics, this.font, Component.translatable("gui.visualcrafting.mode5.label.saturation"), gl + 172, gt + 19, 55, 4210752);
+        this.drawWrapped(guiGraphics, this.font, Component.translatable("gui.visualcrafting.mode5.label.hunger"), gl + 116, gt + 20, 55, 4210752);
+        this.drawWrapped(guiGraphics, this.font, Component.translatable("gui.visualcrafting.mode5.label.saturation"), gl + 172, gt + 20, 55, 4210752);
         this.drawWrapped(guiGraphics, this.font, Component.translatable("gui.visualcrafting.mode5.label.potion_effects"), gl + 56, gt + 68, 120, 4210752);
         this.drawWrapped(guiGraphics, this.font, Component.translatable("gui.visualcrafting.mode5.label.level"), gl + 180, gt + 68, 48, 4210752);
 
         // Return item indicator
-        this.drawWrapped(guiGraphics, this.font, Component.translatable("gui.visualcrafting.mode5.label.return_item"), gl + 57, gt + 45, 58, 4210752);
-        String returnItemLabel = Component.translatable("gui.visualcrafting.mode5.label.return_item").getString();
-        String returnItemValue = this.mode5ReturnItem ? "\u2611" : "\u2610";
-        int returnItemWidth = this.font.width(returnItemLabel);
-        guiGraphics.drawString(this.font, returnItemValue, gl + 57 + returnItemWidth + 2, gt + 45, 4210752);
+        this.drawWrapped(guiGraphics, this.font, Component.translatable("gui.visualcrafting.mode5.label.return_item"), gl + 63, gt + 43, 58, 4210752);
 
         // Duration indicator
-        this.drawWrapped(guiGraphics, this.font, Component.translatable("gui.visualcrafting.mode5.label.duration"), gl + 116, gt + 44, 55, 4210752);
+        this.drawWrapped(guiGraphics, this.font, Component.translatable("gui.visualcrafting.mode5.label.duration"), gl + 116, gt + 43, 55, 4210752);
         String infiniteLabel = Component.translatable("gui.visualcrafting.mode5.label.infinite").getString();
-        String durationValue = this.mode5DurationInfinite ? "\u2611" + infiniteLabel : "\u2610" + infiniteLabel;
-        guiGraphics.drawString(this.font, durationValue, gl + 173, gt + 44, 4210752);
+        String durationValue = (this.mode5DurationInfinite ? "\u2611 " : "\u25A1 ") + infiniteLabel;
+        guiGraphics.drawString(this.font, durationValue, gl + 173, gt + 43, 4210752);
 
         // Eat time and always edible
-        guiGraphics.drawString(this.font, "\u98df\u7528\u65f6\u95f4", gl + 51, gt + 91, 4210752);
-        String alwaysEdibleText = this.mode5AlwaysEdible ? "\u2611\u5ffd\u89c6\u9971\u98df\u5ea6" : "\u2610\u5ffd\u89c6\u9971\u98df\u5ea6";
-        guiGraphics.drawString(this.font, alwaysEdibleText, gl + 122, gt + 91, 4210752);
+        String eatTimeText = Component.translatable("gui.visualcrafting.label.eat_time").getString();
+        // 输入框起点 gl+93：标签右对齐并留 5px 间隙，y 与输入框(88~104)垂直居中
+        guiGraphics.drawString(this.font, eatTimeText, gl + 93 - 5 - this.font.width(eatTimeText), gt + 92, 4210752);
+        String alwaysEdibleText = (this.mode5AlwaysEdible ? "\u2611 " : "\u25A1 ") + Component.translatable("gui.visualcrafting.label.ignore_saturation").getString();
+        this.drawWrapped(guiGraphics, this.font, Component.literal(alwaysEdibleText), gl + 121, gt + 92, 110, 4210752);
     }
 
     private void buildFood(int gl, int gt) {
@@ -3941,13 +4195,13 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
         this.addRenderableWidget(this.formatToggle);
 
-        Button button6 = Button.builder(Component.literal(TIER_LABELS[0]), button -> this.onTier(0)).pos(this.leftPos + this.imageWidth - 94, this.topPos + this.imageHeight - 44 + this.tierOffsetY).size(46, 16).build();
+        Button button6 = Button.builder(Component.translatable(TIER_LABELS[0]), button -> this.onTier(0)).pos(this.leftPos + this.imageWidth - 94, this.topPos + this.imageHeight - 44 + this.tierOffsetY).size(46, 16).build();
 
-        Button button7 = Button.builder(Component.literal(TIER_LABELS[1]), button -> this.onTier(1)).pos(this.leftPos + this.imageWidth - 46, this.topPos + this.imageHeight - 44 + this.tierOffsetY).size(46, 16).build();
+        Button button7 = Button.builder(Component.translatable(TIER_LABELS[1]), button -> this.onTier(1)).pos(this.leftPos + this.imageWidth - 46, this.topPos + this.imageHeight - 44 + this.tierOffsetY).size(46, 16).build();
 
-        Button button8 = Button.builder(Component.literal(TIER_LABELS[2]), button -> this.onTier(2)).pos(this.leftPos + this.imageWidth - 94, this.topPos + this.imageHeight - 26 + this.tierOffsetY).size(46, 16).build();
+        Button button8 = Button.builder(Component.translatable(TIER_LABELS[2]), button -> this.onTier(2)).pos(this.leftPos + this.imageWidth - 94, this.topPos + this.imageHeight - 26 + this.tierOffsetY).size(46, 16).build();
 
-        Button button9 = Button.builder(Component.literal(TIER_LABELS[3]), button -> this.onTier(3)).pos(this.leftPos + this.imageWidth - 46, this.topPos + this.imageHeight - 26 + this.tierOffsetY).size(46, 16).build();
+        Button button9 = Button.builder(Component.translatable(TIER_LABELS[3]), button -> this.onTier(3)).pos(this.leftPos + this.imageWidth - 46, this.topPos + this.imageHeight - 26 + this.tierOffsetY).size(46, 16).build();
 
         this.tierButtons.add(this.addRenderableWidget(button6));
 
@@ -4019,13 +4273,13 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
             }
 
-            VisualCraftingScreen.setSlotX(this.menu.slots.get(0), 80 + this.infInputSlotSlotOffsetX + this.infInputSlotOffsetX);
+            VisualCraftingScreen.setSlotX(this.menu.slots.get(0), 80 + this.infInputSlotSlotOffsetX);
 
-            VisualCraftingScreen.setSlotY(this.menu.slots.get(0), 35 + this.infInputSlotSlotOffsetY + this.infInputSlotOffsetY);
+            VisualCraftingScreen.setSlotY(this.menu.slots.get(0), 35 + this.infInputSlotSlotOffsetY);
 
-            VisualCraftingScreen.setSlotX(this.menu.slots.get(81), 148 + this.infOutSlotSlotOffsetX + this.infOutSlotLineOffsetX);
+            VisualCraftingScreen.setSlotX(this.menu.slots.get(81), 148 + this.infOutSlotSlotOffsetX);
 
-            VisualCraftingScreen.setSlotY(this.menu.slots.get(81), 45 + this.infOutSlotSlotOffsetY + this.infOutSlotLineOffsetY);
+            VisualCraftingScreen.setSlotY(this.menu.slots.get(81), 45 + this.infOutSlotSlotOffsetY);
 
             WrappableButton wrappableButton = new WrappableButton(this.leftPos + 2 + this.infButtonsOffsetX, this.topPos + 12 + this.infButtonsOffsetY, 54, 16, Component.translatable("gui.visualcrafting.mode1.add"), this::onInfuseAdd);
 
@@ -4057,6 +4311,753 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
     }
 
+        // ===================== Mode 6: 命名牌标签页 =====================
+
+    private void initNameWidgets() {
+        for (int i = 0; i <= 81; ++i) {
+            VisualCraftingScreen.setSlotX(this.menu.slots.get(i), -2000);
+            VisualCraftingScreen.setSlotY(this.menu.slots.get(i), -2000);
+        }
+        for (int i = 82; i < this.menu.slots.size(); ++i) {
+            Slot slot = this.menu.slots.get(i);
+            int col = (i - 82) % 9;
+            int row = (i - 82) / 9;
+            VisualCraftingScreen.setSlotX(slot, 8 + col * 18);
+            VisualCraftingScreen.setSlotY(slot, this.imageHeight - 83 + row * 18);
+        }
+        VisualCraftingScreen.setSlotX(this.menu.slots.get(0), 11);
+        VisualCraftingScreen.setSlotY(this.menu.slots.get(0), 74);
+
+        Component saveLabel = Component.translatable("gui.visualcrafting.name.save");
+        Component removeLabel = Component.translatable("gui.visualcrafting.name.remove");
+        Component configLabel = Component.translatable("gui.visualcrafting.config");
+        this.mode6BtnSave = Button.builder(saveLabel, this::onMode6GenerateScript).pos(this.leftPos + 8, this.topPos + 12).size(this.autoButtonWidth(saveLabel), 16).build();
+        this.mode6BtnDelete = Button.builder(removeLabel, this::onMode6DeleteRecipe).pos(this.leftPos + 8, this.topPos + 31).size(this.autoButtonWidth(removeLabel), 16).build();
+        this.mode6BtnConfig = Button.builder(configLabel, this::onMode6Config).pos(this.leftPos + 8, this.topPos + 50).size(this.autoButtonWidth(configLabel), 16).build();
+        this.funcButtons.add(this.addRenderableWidget(this.mode6BtnSave));
+        this.funcButtons.add(this.addRenderableWidget(this.mode6BtnDelete));
+        this.funcButtons.add(this.addRenderableWidget(this.mode6BtnConfig));
+
+        this.mode6NameEdit = new EditBox(this.font, this.leftPos + 100, this.topPos + 13, 108, 16, Component.empty());
+        this.mode6NameEdit.setMaxLength(200);
+        this.mode6NameEdit.setValue(this.mode6NameInput);
+        this.mode6NameEdit.setResponder(s -> this.mode6NameInput = s);
+        this.addRenderableWidget(this.mode6NameEdit);
+
+        for (int r = 0; r < MODE6_LORE_VISIBLE; ++r) {
+            EditBox box = new EditBox(this.font, this.leftPos + 100, this.topPos + 33 + r * 18, 108, 16, Component.empty());
+            box.setMaxLength(200);
+            this.mode6LoreEdits[r] = box;
+            this.addRenderableWidget(box);
+        }
+        this.mode6RefreshLoreEdits();
+
+        Component[] fontLabels = new Component[]{
+                Component.translatable("gui.visualcrafting.name.italic"),
+                Component.translatable("gui.visualcrafting.name.bold"),
+                Component.translatable("gui.visualcrafting.name.underline"),
+                Component.translatable("gui.visualcrafting.name.strike")
+        };
+        for (int i = 0; i < 4; ++i) {
+            final int idx = i;
+            this.mode6FontButtons[i] = Button.builder(fontLabels[i], b -> this.onMode6FontToggle(idx)).pos(this.leftPos + 8 + i * 58, this.topPos + 110).size(54, 16).build();
+            this.funcButtons.add(this.addRenderableWidget(this.mode6FontButtons[i]));
+        }
+        this.mode6UpdateFontLabels();
+
+        this.mode6BtnGlow = Button.builder(VisualCraftingScreen.mode6FontLabel("gui.visualcrafting.name.glow", this.mode6Glow), b -> this.onMode6GlowToggle())
+                .pos(this.leftPos + 33, this.topPos + 75).size(46, 16).build();
+        this.funcButtons.add(this.addRenderableWidget(this.mode6BtnGlow));
+
+        this.mode6PickerHexEdit = new EditBox(this.font, this.leftPos + 62, this.topPos + 150, 60, 16, Component.empty());
+        this.mode6PickerHexEdit.setMaxLength(7);
+        this.mode6PickerHexEdit.setValue("#FFFFFF");
+        this.mode6PickerHexEdit.setResponder(s -> {
+            int parsed = VisualCraftingScreen.parseHexColor(s);
+            if (parsed >= 0) {
+                this.mode6PickerColor = parsed;
+            }
+        });
+        this.mode6PickerHexEdit.setVisible(false);
+        this.addRenderableWidget(this.mode6PickerHexEdit);
+
+        this.mode6PickerOpen = false;
+        this.mode6PickerTarget = -2;
+    }
+
+    private void onMode6FontToggle(int idx) {
+        boolean[] fonts = this.mode6TargetFonts();
+        fonts[idx] = !fonts[idx];
+        this.mode6UpdateFontLabels();
+    }
+
+    /** 当前字体作用目标对应的标志数组（-1 或越界 = 名称行）。 */
+    private boolean[] mode6TargetFonts() {
+        int target = this.mode6FontTarget;
+        if (target >= 0 && target < MODE6_LORE_MAX && target < this.mode6LoreLines.size()) {
+            return this.mode6LoreFonts[target];
+        }
+        return this.mode6NameFonts;
+    }
+
+    /** 指定作用目标是否启用彩虹色。 */
+    private boolean mode6RainbowFor(int target) {
+        if (target >= 0 && target < MODE6_LORE_MAX && target < this.mode6LoreLines.size()) {
+            return this.mode6LoreRainbow[target];
+        }
+        return this.mode6NameRainbow;
+    }
+
+    /** 设置指定作用目标（-1 或越界 = 名称行）的彩虹色开关。 */
+    private void mode6SetRainbowFor(int target, boolean value) {
+        if (target >= 0 && target < MODE6_LORE_MAX && target < this.mode6LoreLines.size()) {
+            this.mode6LoreRainbow[target] = value;
+        } else {
+            this.mode6NameRainbow = value;
+        }
+    }
+
+    /** 切换输入槽时同步字体按钮状态：新槽未设置字体则显示为未勾选（自动取消）。 */
+    private void mode6SyncFontTarget() {
+        int line = this.mode6FocusedLoreLine();
+        int target;
+        if (line >= 0) {
+            target = line;
+        } else if (this.mode6NameEdit != null && this.mode6NameEdit.isFocused()) {
+            target = -1;
+        } else {
+            return;
+        }
+        if (target != this.mode6FontTarget) {
+            this.mode6FontTarget = target;
+            this.mode6UpdateFontLabels();
+        }
+    }
+
+    private int mode6FocusedLoreLine() {
+        for (int i = 0; i < MODE6_LORE_VISIBLE; ++i) {
+            EditBox box = this.mode6LoreEdits[i];
+            if (box != null && box.isFocused()) {
+                int line = this.mode6LoreScroll + i;
+                return line < this.mode6LoreLines.size() ? line : -1;
+            }
+        }
+        return -1;
+    }
+
+    private void mode6RefreshLoreEdits() {
+        if (this.mode6LoreEdits[0] == null) {
+            return;
+        }
+        this.mode6LoreRefreshing = true;
+        for (int i = 0; i < MODE6_LORE_VISIBLE; ++i) {
+            EditBox box = this.mode6LoreEdits[i];
+            int line = this.mode6LoreScroll + i;
+            boolean exists = line < this.mode6LoreLines.size();
+            String value = exists ? this.mode6LoreLines.get(line) : "";
+            if (!box.getValue().equals(value)) {
+                box.setValue(value);
+            }
+            final int lineIndex = line;
+            box.setResponder(s -> this.mode6OnLoreEdited(lineIndex, s));
+            box.setEditable(exists);
+        }
+        this.mode6LoreRefreshing = false;
+    }
+
+    private void mode6OnLoreEdited(int line, String value) {
+        if (this.mode6LoreRefreshing || line < 0 || line >= this.mode6LoreLines.size()) {
+            return;
+        }
+        this.mode6LoreLines.set(line, value);
+        if (line == this.mode6LoreLines.size() - 1 && !value.isEmpty() && this.mode6LoreLines.size() < MODE6_LORE_MAX) {
+            this.mode6LoreLines.add("");
+            this.mode6RefreshLoreEdits();
+        }
+    }
+
+    private void mode6UpdateFontLabels() {
+        if (this.mode6FontButtons[0] == null) {
+            return;
+        }
+        boolean[] fonts = this.mode6TargetFonts();
+        this.mode6FontButtons[0].setMessage(VisualCraftingScreen.mode6FontLabel("gui.visualcrafting.name.italic", fonts[0]));
+        this.mode6FontButtons[1].setMessage(VisualCraftingScreen.mode6FontLabel("gui.visualcrafting.name.bold", fonts[1]));
+        this.mode6FontButtons[2].setMessage(VisualCraftingScreen.mode6FontLabel("gui.visualcrafting.name.underline", fonts[2]));
+        this.mode6FontButtons[3].setMessage(VisualCraftingScreen.mode6FontLabel("gui.visualcrafting.name.strike", fonts[3]));
+    }
+
+    private static Component mode6FontLabel(String key, boolean active) {
+        return Component.literal(active ? "\u2611 " : "\u25A1 ").append(Component.translatable(key));
+    }
+
+    private void onMode6GlowToggle() {
+        this.mode6Glow = !this.mode6Glow;
+        this.mode6UpdateGlowLabel();
+    }
+
+    private void mode6UpdateGlowLabel() {
+        if (this.mode6BtnGlow != null) {
+            this.mode6BtnGlow.setMessage(VisualCraftingScreen.mode6FontLabel("gui.visualcrafting.name.glow", this.mode6Glow));
+        }
+    }
+
+    void renderNameExtras(GuiGraphics guiGraphics, int mouseX, int mouseY) {
+        this.mode6SyncFontTarget();
+        guiGraphics.renderOutline(this.slotAbsX(0) - 1, this.slotAbsY(0) - 1, 18, 18, -1);
+        if (this.mode6PickerOpen) {
+            return;
+        }
+        guiGraphics.drawString(this.font, Component.translatable("gui.visualcrafting.name.label.name").getString(), this.leftPos + 62, this.topPos + 17, 0x404040, false);
+        guiGraphics.drawString(this.font, Component.translatable("gui.visualcrafting.name.label.lore").getString(), this.leftPos + 62, this.topPos + 37, 0x404040, false);
+        this.renderNameSwatch(guiGraphics, mouseX, mouseY, this.leftPos + 82, this.topPos + 13, this.mode6NameColor, this.mode6NameRainbow);
+        for (int i = 0; i < MODE6_LORE_VISIBLE; ++i) {
+            int line = this.mode6LoreScroll + i;
+            if (line >= this.mode6LoreLines.size()) {
+                break;
+            }
+            this.renderNameSwatch(guiGraphics, mouseX, mouseY, this.leftPos + 82, this.topPos + 33 + i * 18, this.mode6LoreColors[line], this.mode6LoreRainbow[line]);
+        }
+        this.renderNameLoreScrollBar(guiGraphics);
+    }
+
+    private void renderNameLoreScrollBar(GuiGraphics guiGraphics) {
+        int total = this.mode6LoreLines.size();
+        if (total <= MODE6_LORE_VISIBLE) {
+            return;
+        }
+        int trackX = this.leftPos + 212;
+        int trackY = this.topPos + 33;
+        int trackH = MODE6_LORE_VISIBLE * 18 - 2;
+        guiGraphics.fill(trackX, trackY, trackX + 3, trackY + trackH, 0x40FFFFFF);
+        int max = total - MODE6_LORE_VISIBLE;
+        int thumbH = Math.max(8, trackH * MODE6_LORE_VISIBLE / total);
+        int thumbY = trackY + (trackH - thumbH) * this.mode6LoreScroll / max;
+        guiGraphics.fill(trackX, thumbY, trackX + 3, thumbY + thumbH, 0xFFAAAAAA);
+    }
+
+    private void renderNameSwatch(GuiGraphics guiGraphics, int mouseX, int mouseY, int x, int y, int color, boolean rainbow) {
+        guiGraphics.fill(x, y, x + 16, y + 16, 0xFF2A2A2A);
+        if (rainbow) {
+            for (int i = 0; i < 12; ++i) {
+                guiGraphics.fill(x + 2 + i, y + 2, x + 3 + i, y + 14, 0xFF000000 | VisualCraftingScreen.rainbowColor(i, 12));
+            }
+        } else if (color >= 0) {
+            guiGraphics.fill(x + 2, y + 2, x + 14, y + 14, 0xFF000000 | (color & 0xFFFFFF));
+        }
+        if (!rainbow) {
+            guiGraphics.drawString(this.font, "&", x + 5, y + 4, 0xFFFFFFFF, false);
+        }
+        boolean hovered = VisualCraftingScreen.inRect(mouseX, mouseY, x, y, 16, 16);
+        guiGraphics.renderOutline(x, y, 16, 16, hovered ? 0xFFFFFFFF : 0xFF808080);
+    }
+
+    private void renderNamePicker(GuiGraphics guiGraphics, int mouseX, int mouseY) {
+        int px = this.leftPos + 36;
+        int py = this.topPos + 30;
+        guiGraphics.fill(px, py, px + 188, py + 172, 0xFF101010);
+        guiGraphics.renderOutline(px, py, 188, 172, 0xFFFFFFFF);
+        guiGraphics.drawString(this.font, Component.translatable("gui.visualcrafting.name.picker.title").getString(), px + 8, py + 8, 0xFFFFFF, false);
+        for (int i = 0; i < VisualCraftingScreen.NAME_PALETTE.length; ++i) {
+            int sx = px + 8 + (i % 8) * 18;
+            int sy = py + 24 + (i / 8) * 18;
+            int color = VisualCraftingScreen.NAME_PALETTE[i];
+            guiGraphics.fill(sx, sy, sx + 16, sy + 16, 0xFF000000 | color);
+            boolean hovered = VisualCraftingScreen.inRect(mouseX, mouseY, sx, sy, 16, 16);
+            int border = color == (this.mode6PickerColor & 0xFFFFFF) ? 0xFFFFFF00 : (hovered ? 0xFFFFFFFF : 0xFF555555);
+            guiGraphics.renderOutline(sx, sy, 16, 16, border);
+        }
+        boolean pickerRainbow = this.mode6RainbowFor(this.mode6PickerTarget);
+        if (pickerRainbow) {
+            for (int i = 0; i < 16; ++i) {
+                guiGraphics.fill(px + 8 + i, py + 120, px + 9 + i, py + 136, 0xFF000000 | VisualCraftingScreen.rainbowColor(i, 16));
+            }
+        } else {
+            guiGraphics.fill(px + 8, py + 120, px + 24, py + 136, 0xFF000000 | (this.mode6PickerColor & 0xFFFFFF));
+        }
+        guiGraphics.renderOutline(px + 8, py + 120, 16, 16, 0xFFFFFFFF);
+        this.drawNamePickerButton(guiGraphics, mouseX, mouseY, px + 8, py + 140, 62, 16, VisualCraftingScreen.mode6FontLabel("gui.visualcrafting.name.rainbow", pickerRainbow).getString());
+        this.drawNamePickerButton(guiGraphics, mouseX, mouseY, px + 104, py + 140, 20, 16, Component.translatable("gui.visualcrafting.name.picker.none").getString());
+        this.drawNamePickerButton(guiGraphics, mouseX, mouseY, px + 126, py + 140, 28, 16, Component.translatable("gui.visualcrafting.name.picker.ok").getString());
+        this.drawNamePickerButton(guiGraphics, mouseX, mouseY, px + 156, py + 140, 28, 16, Component.translatable("gui.visualcrafting.name.picker.cancel").getString());
+        if (pickerRainbow) {
+            guiGraphics.drawString(this.font, Component.translatable("gui.visualcrafting.name.rainbow.hint").getString(), px + 8, py + 160, 0xFFBBBBBB, false);
+        }
+    }
+
+    private void drawNamePickerButton(GuiGraphics guiGraphics, int mouseX, int mouseY, int x, int y, int width, int height, String label) {
+        boolean hovered = VisualCraftingScreen.inRect(mouseX, mouseY, x, y, width, height);
+        guiGraphics.fill(x, y, x + width, y + height, hovered ? 0xFF3A3A3A : 0xFF2A2A2A);
+        guiGraphics.renderOutline(x, y, width, height, 0xFFAAAAAA);
+        guiGraphics.drawString(this.font, label, x + (width - this.font.width(label)) / 2, y + 4, 0xFFFFFF, false);
+    }
+
+    private boolean mode6SwatchClick(double mouseX, double mouseY) {
+        if (VisualCraftingScreen.inRect(mouseX, mouseY, this.leftPos + 82, this.topPos + 13, 16, 16)) {
+            this.mode6OpenPicker(-1);
+            return true;
+        }
+        for (int i = 0; i < MODE6_LORE_VISIBLE; ++i) {
+            int line = this.mode6LoreScroll + i;
+            if (line >= this.mode6LoreLines.size()) {
+                break;
+            }
+            if (VisualCraftingScreen.inRect(mouseX, mouseY, this.leftPos + 82, this.topPos + 33 + i * 18, 16, 16)) {
+                this.mode6OpenPicker(line);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean mode6PickerClick(double mouseX, double mouseY, int button) {
+        int px = this.leftPos + 36;
+        int py = this.topPos + 30;
+        if (mouseX < (double) px || mouseX >= (double) (px + 188) || mouseY < (double) py || mouseY >= (double) (py + 172)) {
+            return false;
+        }
+        if (VisualCraftingScreen.inRect(mouseX, mouseY, px + 26, py + 120, 60, 16)) {
+            if (this.mode6PickerHexEdit != null) {
+                this.mode6PickerHexEdit.setVisible(true);
+                this.mode6PickerHexEdit.setFocused(true);
+                this.setFocused(this.mode6PickerHexEdit);
+            }
+            return true;
+        }
+        for (int i = 0; i < VisualCraftingScreen.NAME_PALETTE.length; ++i) {
+            int sx = px + 8 + (i % 8) * 18;
+            int sy = py + 24 + (i / 8) * 18;
+            if (VisualCraftingScreen.inRect(mouseX, mouseY, sx, sy, 16, 16)) {
+                this.mode6SetPickerColor(VisualCraftingScreen.NAME_PALETTE[i]);
+                return true;
+            }
+        }
+        if (VisualCraftingScreen.inRect(mouseX, mouseY, px + 8, py + 140, 62, 16)) {
+            this.mode6SetRainbowFor(this.mode6PickerTarget, !this.mode6RainbowFor(this.mode6PickerTarget));
+            return true;
+        }
+        if (VisualCraftingScreen.inRect(mouseX, mouseY, px + 104, py + 140, 20, 16)) {
+            this.mode6SetPickerColor(-1);
+            this.mode6ApplyPicker();
+            return true;
+        }
+        if (VisualCraftingScreen.inRect(mouseX, mouseY, px + 126, py + 140, 28, 16)) {
+            this.mode6ApplyPicker();
+            return true;
+        }
+        if (VisualCraftingScreen.inRect(mouseX, mouseY, px + 156, py + 140, 28, 16)) {
+            this.mode6ClosePicker();
+            return true;
+        }
+        return true;
+    }
+
+    private void mode6SetPickerBackdropVisible(boolean visible) {
+
+        Button[] buttons = new Button[]{this.mode6BtnSave, this.mode6BtnDelete, this.mode6BtnConfig, this.mode6BtnGlow};
+
+        for (Button button : buttons) {
+
+            if (button != null) {
+
+                button.visible = visible;
+
+            }
+
+        }
+
+        if (this.mode6NameEdit != null) {
+
+            this.mode6NameEdit.visible = visible;
+
+        }
+
+        for (int r = 0; r < MODE6_LORE_VISIBLE; ++r) {
+
+            if (this.mode6LoreEdits[r] != null) {
+
+                this.mode6LoreEdits[r].visible = visible;
+
+            }
+
+        }
+
+        for (int i = 0; i < this.mode6FontButtons.length; ++i) {
+
+            if (this.mode6FontButtons[i] != null) {
+
+                this.mode6FontButtons[i].visible = visible;
+
+            }
+
+        }
+
+        for (int i = 82; i < this.menu.slots.size(); ++i) {
+
+            Slot slot = this.menu.slots.get(i);
+
+            if (visible) {
+
+                int col = (i - 82) % 9;
+
+                int row = (i - 82) / 9;
+
+                VisualCraftingScreen.setSlotX(slot, 8 + col * 18);
+
+                VisualCraftingScreen.setSlotY(slot, this.imageHeight - 83 + row * 18);
+
+            } else {
+
+                VisualCraftingScreen.setSlotX(slot, -2000);
+
+                VisualCraftingScreen.setSlotY(slot, -2000);
+
+            }
+
+        }
+
+    }
+
+    private void mode6OpenPicker(int target) {
+
+        this.mode6PickerTarget = target;
+        int current = target == -1 ? this.mode6NameColor : (target >= 0 && target < MODE6_LORE_MAX ? this.mode6LoreColors[target] : -1);
+        this.mode6PickerColor = current >= 0 ? current : 0xFFFFFF;
+        if (this.mode6PickerHexEdit != null) {
+            this.mode6PickerHexEdit.setValue(String.format("#%06X", this.mode6PickerColor));
+            this.mode6PickerHexEdit.setVisible(true);
+        }
+        this.mode6SetPickerBackdropVisible(false);
+        this.mode6PickerOpen = true;
+    }
+
+    private void mode6ClosePicker() {
+        this.mode6PickerOpen = false;
+        this.mode6PickerTarget = -2;
+        if (this.mode6PickerHexEdit != null) {
+            this.mode6PickerHexEdit.setVisible(false);
+        }
+        this.mode6SetPickerBackdropVisible(true);
+    }
+
+    private void mode6SetPickerColor(int color) {
+        this.mode6PickerColor = color < 0 ? -1 : (color & 0xFFFFFF);
+        if (this.mode6PickerHexEdit != null && this.mode6PickerColor >= 0) {
+            String hex = String.format("#%06X", this.mode6PickerColor);
+            if (!hex.equalsIgnoreCase(this.mode6PickerHexEdit.getValue())) {
+                this.mode6PickerHexEdit.setValue(hex);
+            }
+        }
+    }
+
+    private void mode6ApplyPicker() {
+        if (this.mode6PickerTarget == -1) {
+            this.mode6NameColor = this.mode6PickerColor;
+        } else if (this.mode6PickerTarget >= 0 && this.mode6PickerTarget < MODE6_LORE_MAX) {
+            this.mode6LoreColors[this.mode6PickerTarget] = this.mode6PickerColor;
+        }
+        this.mode6ClosePicker();
+    }
+
+    private static final String MODE6_SCRIPT_DIR = "kubejs/startup_scripts";
+    private static final String MODE6_SCRIPT_FILENAME = "visualcrafting_name.js";
+    private static final String MODE6_SCRIPT_HEADER =
+            "// === VisualCrafting Name Script (auto-generated) ===\n"
+            + "// 命名牌：物品名称与描述修改（startup_scripts，保存后重启游戏生效）\n"
+            + "ItemEvents.modification(event => {\n";
+    private static final String MODE6_SCRIPT_FOOTER = "});\n";
+
+    private void onMode6GenerateScript(Button button) {
+        ItemStack stack = this.menu.slots.get(0).getItem();
+        if (stack.isEmpty()) {
+            this.showStatus(Component.translatable("gui.visualcrafting.name.status.need_item").getString());
+            return;
+        }
+        String itemId = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+        try {
+            File dir = new File(this.minecraft.gameDirectory, MODE6_SCRIPT_DIR);
+            dir.mkdirs();
+            File file = new File(dir, MODE6_SCRIPT_FILENAME);
+            String snippet = this.buildNameSnippet(itemId);
+            String old = file.exists()
+                    ? VisualCraftingScreen.sanitizeScriptText(new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8))
+                    : "";
+            if (!old.contains("ItemEvents.modification(")) {
+                old = MODE6_SCRIPT_HEADER + MODE6_SCRIPT_FOOTER;
+            }
+            String updated = VisualCraftingScreen.replaceMode6Block(old, itemId, snippet);
+            Files.write(file.toPath(), updated.getBytes(StandardCharsets.UTF_8));
+            this.showStatus(Component.translatable("gui.visualcrafting.name.status.saved", new Object[]{itemId}).getString()
+                    + " | " + Component.translatable("gui.visualcrafting.status.restart_hint").getString());
+        }
+        catch (Exception exception) {
+            VisualCraftingScreen.logWarn("Generate name script failed: " + exception.getMessage(), exception);
+            this.showStatus(Component.translatable("gui.visualcrafting.name.status.generate_failed", new Object[]{exception.getMessage()}).getString());
+        }
+    }
+
+    private static String replaceMode6Block(String content, String itemId, String snippet) {
+        int[] range = VisualCraftingScreen.mode6BlockRange(content, itemId);
+        if (range != null) {
+            return content.substring(0, range[0]) + snippet + content.substring(range[1]);
+        }
+        int open = content.indexOf("ItemEvents.modification(");
+        int brace = open >= 0 ? content.indexOf("{\n", open) : -1;
+        if (brace < 0) {
+            return content + snippet;
+        }
+        int insertAt = brace + 2;
+        return content.substring(0, insertAt) + snippet + content.substring(insertAt);
+    }
+
+    private static int[] mode6BlockRange(String content, String itemId) {
+        int idx = content.indexOf("event.modify('" + itemId + "',");
+        if (idx < 0) {
+            return null;
+        }
+        int lineStart = content.lastIndexOf('\n', idx) + 1;
+        if (lineStart >= 2) {
+            int prevLineStart = content.lastIndexOf('\n', lineStart - 2) + 1;
+            if (content.substring(prevLineStart, lineStart).trim().equals("// " + itemId)) {
+                lineStart = prevLineStart;
+            }
+        }
+        int close = content.indexOf("\n    });", idx);
+        int end;
+        if (close >= 0) {
+            end = close + 8;
+        }
+        else {
+            close = content.indexOf("});", idx);
+            if (close < 0) {
+                return null;
+            }
+            end = close + 3;
+        }
+        if (end < content.length() && content.charAt(end) == '\r') {
+            ++end;
+        }
+        if (end < content.length() && content.charAt(end) == '\n') {
+            ++end;
+        }
+        return new int[]{lineStart, end};
+    }
+
+    private void onMode6DeleteRecipe(Button button) {
+        ItemStack stack = this.menu.slots.get(0).getItem();
+        if (stack.isEmpty()) {
+            this.showStatus(Component.translatable("gui.visualcrafting.name.status.need_item").getString());
+            return;
+        }
+        String itemId = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+        try {
+            File file = new File(new File(this.minecraft.gameDirectory, MODE6_SCRIPT_DIR), MODE6_SCRIPT_FILENAME);
+            if (!file.exists()) {
+                this.showStatus(Component.translatable("gui.visualcrafting.name.status.file_not_found").getString());
+                return;
+            }
+            String old = new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8);
+            String cleaned = VisualCraftingScreen.sanitizeScriptText(old);
+            boolean hadStrayText = !cleaned.equals(old);
+            boolean removed = false;
+            String result = cleaned;
+            int[] range = VisualCraftingScreen.mode6BlockRange(cleaned, itemId);
+            if (range != null) {
+                result = cleaned.substring(0, range[0]) + cleaned.substring(range[1]);
+                removed = true;
+            }
+            if (removed || hadStrayText) {
+                Files.write(file.toPath(), result.getBytes(StandardCharsets.UTF_8));
+            }
+            if (removed) {
+                this.showStatus(Component.translatable("gui.visualcrafting.name.status.removed", new Object[]{itemId}).getString()
+                        + " | " + Component.translatable("gui.visualcrafting.status.restart_hint").getString());
+            }
+            else if (hadStrayText) {
+                this.showStatus(Component.translatable("gui.visualcrafting.name.status.cleaned").getString());
+            }
+            else {
+                this.showStatus(Component.translatable("gui.visualcrafting.name.status.entry_not_found", new Object[]{itemId}).getString());
+            }
+        }
+        catch (Exception exception) {
+            VisualCraftingScreen.logWarn("Remove name script failed: " + exception.getMessage(), exception);
+            this.showStatus(Component.translatable("gui.visualcrafting.name.status.generate_failed", new Object[]{exception.getMessage()}).getString());
+        }
+    }
+
+    private void onMode6Config(Button button) {
+        File file = new File(this.minecraft.gameDirectory, MODE6_SCRIPT_DIR);
+        if (!file.exists()) {
+            file.mkdirs();
+        }
+        Util.getPlatform().openFile(file);
+    }
+
+    private String buildNameSnippet(String itemId) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("    // ").append(itemId).append("\n");
+        sb.append("    event.modify('").append(itemId).append("', item => {\n");
+        sb.append("        item.set('minecraft:custom_name', ")
+                .append(this.mode6ComponentExpr(this.mode6NameInput, this.mode6NameColor, this.mode6NameFonts, this.mode6NameRainbow))
+                .append(");\n");
+        ArrayList<String> lore = new ArrayList<String>();
+        for (int r = 0; r < this.mode6LoreLines.size(); ++r) {
+            String line = this.mode6LoreLines.get(r);
+            line = line == null ? "" : line.trim();
+            if (line.isEmpty()) {
+                continue;
+            }
+            lore.add(this.mode6ComponentExpr(line, this.mode6LoreColors[r], this.mode6LoreFonts[r], this.mode6LoreRainbow[r]));
+        }
+        if (!lore.isEmpty()) {
+            sb.append("        item.set('minecraft:lore', [").append(String.join(", ", lore)).append("]);\n");
+        }
+
+        if (this.mode6Glow) {
+            sb.append("        item.set('minecraft:enchantment_glint_override', true);\n");
+        }
+        sb.append("    });\n");
+        return sb.toString();
+    }
+
+    private String mode6ComponentExpr(String text, int color, boolean[] fonts, boolean rainbow) {
+        if (rainbow) {
+            return this.mode6RainbowComponentExpr(text, fonts);
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("Component.literal('").append(VisualCraftingScreen.jsTextEscape(text)).append("')");
+        if (color >= 0) {
+            sb.append(".color('").append(String.format("#%06X", color & 0xFFFFFF)).append("')");
+        }
+        if (fonts[1]) {
+            sb.append(".bold(true)");
+        }
+        sb.append(".italic(").append(fonts[0]).append(")");
+        if (fonts[2]) {
+            sb.append(".underlined(true)");
+        }
+        if (fonts[3]) {
+            sb.append(".strikethrough(true)");
+        }
+        return sb.toString();
+    }
+
+    /** 彩虹色组件：逐字符按色相均分染色，字体样式统一挂在父组件上。 */
+    private String mode6RainbowComponentExpr(String text, boolean[] fonts) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("Component.empty()");
+        if (fonts[1]) {
+            sb.append(".bold(true)");
+        }
+        sb.append(".italic(").append(fonts[0]).append(")");
+        if (fonts[2]) {
+            sb.append(".underlined(true)");
+        }
+        if (fonts[3]) {
+            sb.append(".strikethrough(true)");
+        }
+        String source = text == null ? "" : text;
+        int count = source.codePointCount(0, source.length());
+        int index = 0;
+        for (int i = 0; i < count; ++i) {
+            int codePoint = source.codePointAt(index);
+            int next = index + Character.charCount(codePoint);
+            sb.append(".append(Component.literal('").append(VisualCraftingScreen.jsTextEscape(source.substring(index, next)))
+                    .append("').color('").append(String.format("#%06X", VisualCraftingScreen.rainbowColor(i, count))).append("'))");
+            index = next;
+        }
+        return sb.toString();
+    }
+
+    /** 彩虹色：按字符序号在 360° 色相上均分取色。 */
+    static int rainbowColor(int index, int count) {
+        float hue = count <= 1 ? 0.0F : 360.0F * (float) index / (float) count;
+        return VisualCraftingScreen.hslToRgb(hue, 1.0F, 0.5F);
+    }
+
+    private static int hslToRgb(float hue, float saturation, float lightness) {
+        float h = ((hue % 360.0F) + 360.0F) % 360.0F / 360.0F;
+        float q = lightness < 0.5F ? lightness * (1.0F + saturation) : lightness + saturation - lightness * saturation;
+        float p = 2.0F * lightness - q;
+        int r = Math.round(VisualCraftingScreen.hueToChannel(p, q, h + 1.0F / 3.0F) * 255.0F);
+        int g = Math.round(VisualCraftingScreen.hueToChannel(p, q, h) * 255.0F);
+        int b = Math.round(VisualCraftingScreen.hueToChannel(p, q, h - 1.0F / 3.0F) * 255.0F);
+        return (r << 16) | (g << 8) | b;
+    }
+
+    private static float hueToChannel(float p, float q, float t) {
+        float value = t;
+        if (value < 0.0F) {
+            value += 1.0F;
+        }
+        if (value > 1.0F) {
+            value -= 1.0F;
+        }
+        if (value < 1.0F / 6.0F) {
+            return p + (q - p) * 6.0F * value;
+        }
+        if (value < 1.0F / 2.0F) {
+            return q;
+        }
+        if (value < 2.0F / 3.0F) {
+            return p + (q - p) * (2.0F / 3.0F - value) * 6.0F;
+        }
+        return p;
+    }
+
+    private static String jsTextEscape(String text) {
+        if (text == null) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < text.length(); ++i) {
+            char c = text.charAt(i);
+            switch (c) {
+                case '\\' -> sb.append("\\\\");
+                case '\'' -> sb.append("\\'");
+                case '\n' -> sb.append("\\n");
+                case '\r' -> sb.append("\\r");
+                case '\t' -> sb.append("\\t");
+                default -> sb.append(c);
+            }
+        }
+        return sb.toString();
+    }
+
+    private static String sanitizeScriptText(String text) {
+        if (text == null) {
+            return "";
+        }
+        return text.replace("【来自手机的消息】", "")
+                .replace("【来自电脑的消息】", "")
+                .replace("【来自移动端的消息】", "")
+                .replace("【来自手机消息】", "");
+    }
+
+    private static int parseHexColor(String text) {
+        if (text == null) {
+            return -1;
+        }
+        String hex = text.trim();
+        if (hex.startsWith("#")) {
+            hex = hex.substring(1);
+        }
+        if (hex.length() != 6) {
+            return -1;
+        }
+        try {
+            return Integer.parseInt(hex, 16) & 0xFFFFFF;
+        }
+        catch (Exception exception) {
+            return -1;
+        }
+    }
+
+    private static boolean inRect(double mouseX, double mouseY, int x, int y, int width, int height) {
+        return mouseX >= (double) x && mouseX < (double) (x + width) && mouseY >= (double) y && mouseY < (double) (y + height);
+    }
+
     private void initMode2Widgets() {
         int slotIdx;
         for (slotIdx = 0; slotIdx <= 81; ++slotIdx) {
@@ -4073,22 +5074,18 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
         this.loadMode2Data();
 
-        // Top area: buttons (left) + dropdowns (right)
-        int btnX = this.leftPos + 8;
-        int btnW = 66, btnH = 24, btnGap = 4;
-
-        this.mode2BtnMineralGen = new WrappableButton(btnX, this.topPos + 12, btnW, btnH, Component.translatable("gui.visualcrafting.mode2.mineral_gen"), this::onMode2MineralGen);
-        this.mode2BtnBanGen = new WrappableButton(btnX, this.topPos + 12 + btnH + btnGap, btnW, btnH, Component.translatable("gui.visualcrafting.mode2.ban_gen"), this::onMode2BanGen);
-        this.mode2BtnConfig = new WrappableButton(btnX, this.topPos + 12 + (btnH + btnGap) * 2, btnW, btnH, Component.translatable("gui.visualcrafting.config"), this::onMode2Config);
+        // ===== Mode2 compact layout (baseline: bak_20260723_GUI_OK) =====
+        // Left column: three WrappableButtons 54x16 at topPos+12/+31/+50
+        this.mode2BtnMineralGen = new WrappableButton(this.leftPos + 8, this.topPos + 12, 54, 16, Component.translatable("gui.visualcrafting.mode2.mineral_gen"), this::onMode2MineralGen);
+        this.mode2BtnBanGen = new WrappableButton(this.leftPos + 8, this.topPos + 31, 54, 16, Component.translatable("gui.visualcrafting.mode2.ban_gen"), this::onMode2BanGen);
+        this.mode2BtnConfig = new WrappableButton(this.leftPos + 8, this.topPos + 50, 54, 16, Component.translatable("gui.visualcrafting.config"), this::onMode2Config);
         this.funcButtons.add(this.addRenderableWidget(this.mode2BtnMineralGen));
         this.funcButtons.add(this.addRenderableWidget(this.mode2BtnBanGen));
         this.funcButtons.add(this.addRenderableWidget(this.mode2BtnConfig));
 
-        int dropX = btnX + btnW + 8;
-        int dropW = 160;
-        int dropH = 24;
-        int dropY1 = this.topPos + 12;
-        int dropY2 = this.topPos + 12 + dropH + 4;
+        // Right column: dimension + biome dropdowns, 116 wide, start at leftPos+67+mode2OffsetX
+        int dropX = this.leftPos + 67 + this.mode2OffsetX;
+        int dropW = 116;
 
         ArrayList<String> arrayList = new ArrayList<String>();
         for (ResourceLocation object2 : this.mode2Dimensions) {
@@ -4100,14 +5097,14 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
             arrayList.add((String)object);
         }
         if (this.mode2BiomesByDim.containsKey("__all__")) {
-            arrayList.add("全部群系");
+            arrayList.add(Language.getInstance().getOrDefault("gui.visualcrafting.label.all_biomes"));
         }
         if (this.mode2DataPending) {
             arrayList.clear();
-            arrayList.add("加载中...");
+            arrayList.add(Language.getInstance().getOrDefault("gui.visualcrafting.label.loading"));
         }
 
-        this.mode2Dropdown = new DropdownWidget(dropX, dropY1, dropW);
+        this.mode2Dropdown = new DropdownWidget(dropX, this.topPos + 6, dropW);
         this.mode2Dropdown.setOptions(arrayList, this.mode2DimIdx);
         this.mode2Dropdown.setOnSelect(n -> {
             this.mode2DimIdx = n;
@@ -4129,106 +5126,17 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
         }
         if (this.mode2DataPending) {
             arrayList2.clear();
-            arrayList2.add("加载中...");
+            arrayList2.add(Language.getInstance().getOrDefault("gui.visualcrafting.label.loading"));
         }
 
-        this.mode2BiomeDropdown = new DropdownWidget(dropX, dropY2, dropW);
+        this.mode2BiomeDropdown = new DropdownWidget(dropX, this.topPos + 24, dropW);
         this.mode2BiomeDropdown.setMultiselect(true);
         this.mode2BiomeDropdown.setOptions(arrayList2, 0);
         this.mode2BiomeDropdown.setSelectedIndices(this.mode2BiomeSelectedIndices);
         this.addRenderableWidget(this.mode2BiomeDropdown);
 
-        // Table area: 3 rows (mineral, byproduct, height range)
-        int tableY = this.topPos + 106;
-        int rowH = 44, rowGap = 2;
-        int slotSize = 36;
-        int nameW = 60;
-        int editW = 46, editH = 22;
-        int colSlotX = this.leftPos + 8;
-        int colNameX = colSlotX + slotSize + 8;
-        int colMinX = colNameX + nameW + 8;
-        int colMaxX = colMinX + editW + 6;
-
-        // Row 0: mineral
-        int row0Y = tableY + (rowH - editH) / 2;
-        VisualCraftingScreen.setSlotX(this.menu.slots.get(0), colSlotX);
-        VisualCraftingScreen.setSlotY(this.menu.slots.get(0), tableY + (rowH - 18) / 2);
-
-        this.mode2MineralCountMinEdit = new EditBox(this.font, colMinX, row0Y, editW, editH, Component.empty());
-        this.mode2MineralCountMinEdit.setValue(String.valueOf(this.mode2MineralCountMin));
-        this.mode2MineralCountMinEdit.setFilter(string -> string.isEmpty() || string.matches("\\d{0,3}"));
-        this.mode2MineralCountMinEdit.setResponder(string -> {
-            if (string.isEmpty()) {
-                this.mode2MineralCountMin = 1;
-            } else {
-                try {
-                    this.mode2MineralCountMin = Math.clamp(Integer.parseInt(string), 1, 999);
-                } catch (Exception exception) {
-                    VisualCraftingScreen.logWarn("Failed to parse mode2MineralCountMin", null);
-                }
-            }
-        });
-        this.addRenderableWidget(this.mode2MineralCountMinEdit);
-
-        this.mode2MineralCountMaxEdit = new EditBox(this.font, colMaxX, row0Y, editW, editH, Component.empty());
-        this.mode2MineralCountMaxEdit.setValue(String.valueOf(this.mode2MineralCountMax));
-        this.mode2MineralCountMaxEdit.setFilter(string -> string.isEmpty() || string.matches("\\d{0,3}"));
-        this.mode2MineralCountMaxEdit.setResponder(string -> {
-            if (string.isEmpty()) {
-                this.mode2MineralCountMax = 3;
-            } else {
-                try {
-                    this.mode2MineralCountMax = Math.clamp(Integer.parseInt(string), 1, 999);
-                } catch (Exception exception) {
-                    VisualCraftingScreen.logWarn("Failed to parse mode2MineralCountMax", null);
-                }
-            }
-        });
-        this.addRenderableWidget(this.mode2MineralCountMaxEdit);
-
-        // Row 1: byproduct
-        int row1Y = tableY + rowH + rowGap;
-        int row1EY = row1Y + (rowH - editH) / 2;
-        VisualCraftingScreen.setSlotX(this.menu.slots.get(1), colSlotX);
-        VisualCraftingScreen.setSlotY(this.menu.slots.get(1), row1Y + (rowH - 18) / 2);
-
-        this.mode2ByproductCountMinEdit = new EditBox(this.font, colMinX, row1EY, editW, editH, Component.empty());
-        this.mode2ByproductCountMinEdit.setValue(String.valueOf(this.mode2ByproductCountMin));
-        this.mode2ByproductCountMinEdit.setFilter(string -> string.isEmpty() || string.matches("\\d{0,3}"));
-        this.mode2ByproductCountMinEdit.setResponder(string -> {
-            if (string.isEmpty()) {
-                this.mode2ByproductCountMin = 1;
-            } else {
-                try {
-                    this.mode2ByproductCountMin = Math.clamp(Integer.parseInt(string), 1, 999);
-                } catch (Exception exception) {
-                    VisualCraftingScreen.logWarn("Failed to parse mode2ByproductCountMin", null);
-                }
-            }
-        });
-        this.addRenderableWidget(this.mode2ByproductCountMinEdit);
-
-        this.mode2ByproductCountMaxEdit = new EditBox(this.font, colMaxX, row1EY, editW, editH, Component.empty());
-        this.mode2ByproductCountMaxEdit.setValue(String.valueOf(this.mode2ByproductCountMax));
-        this.mode2ByproductCountMaxEdit.setFilter(string -> string.isEmpty() || string.matches("\\d{0,3}"));
-        this.mode2ByproductCountMaxEdit.setResponder(string -> {
-            if (string.isEmpty()) {
-                this.mode2ByproductCountMax = 2;
-            } else {
-                try {
-                    this.mode2ByproductCountMax = Math.clamp(Integer.parseInt(string), 1, 999);
-                } catch (Exception exception) {
-                    VisualCraftingScreen.logWarn("Failed to parse mode2ByproductCountMax", null);
-                }
-            }
-        });
-        this.addRenderableWidget(this.mode2ByproductCountMaxEdit);
-
-        // Row 2: height range (no slot)
-        int row2Y = row1Y + rowH + rowGap;
-        int row2EY = row2Y + (rowH - editH) / 2;
-
-        this.mode2MinYEdit = new EditBox(this.font, colMinX, row2EY, editW, editH, Component.empty());
+        // Height-range (layer) edit boxes: 36x16, x=leftPos+99/+147+mode2OffsetX, y=topPos+102
+        this.mode2MinYEdit = new EditBox(this.font, this.leftPos + 99 + this.mode2OffsetX, this.topPos + 102, 36, 16, Component.empty());
         this.mode2MinYEdit.setValue(String.valueOf(this.mode2MinY));
         this.mode2MinYEdit.setFilter(string -> string.isEmpty() || string.matches("-?\\d{0,3}"));
         this.mode2MinYEdit.setResponder(string -> {
@@ -4249,7 +5157,7 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
         });
         this.addRenderableWidget(this.mode2MinYEdit);
 
-        this.mode2MaxYEdit = new EditBox(this.font, colMaxX, row2EY, editW, editH, Component.empty());
+        this.mode2MaxYEdit = new EditBox(this.font, this.leftPos + 147 + this.mode2OffsetX, this.topPos + 102, 36, 16, Component.empty());
         this.mode2MaxYEdit.setValue(String.valueOf(this.mode2MaxY));
         this.mode2MaxYEdit.setFilter(string -> string.isEmpty() || string.matches("-?\\d{0,3}"));
         this.mode2MaxYEdit.setResponder(string -> {
@@ -4270,13 +5178,83 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
         });
         this.addRenderableWidget(this.mode2MaxYEdit);
 
+        // Two 18x18 rows: mineral slot (y=42), byproduct slot (y=70); slot x=leftPos+71+mode2OffsetX
+        VisualCraftingScreen.setSlotX(this.menu.slots.get(0), 71 + this.mode2OffsetX);
+        VisualCraftingScreen.setSlotY(this.menu.slots.get(0), 42);
+        VisualCraftingScreen.setSlotX(this.menu.slots.get(1), 71 + this.mode2OffsetX);
+        VisualCraftingScreen.setSlotY(this.menu.slots.get(1), 70);
+
+        // Amount count edit boxes 22x14: mineral row y=topPos+42 (x=111/147+mode2OffsetX), byproduct row y=topPos+76 (x=111/148+mode2OffsetX)
+        this.mode2MineralCountMinEdit = new EditBox(this.font, this.leftPos + 111 + this.mode2OffsetX, this.topPos + 42, 22, 14, Component.empty());
+        this.mode2MineralCountMinEdit.setValue(String.valueOf(this.mode2MineralCountMin));
+        this.mode2MineralCountMinEdit.setFilter(string -> string.isEmpty() || string.matches("\\d{0,3}"));
+        this.mode2MineralCountMinEdit.setResponder(string -> {
+            if (string.isEmpty()) {
+                this.mode2MineralCountMin = 1;
+            } else {
+                try {
+                    this.mode2MineralCountMin = Math.clamp(Integer.parseInt(string), 1, 999);
+                } catch (Exception exception) {
+                    VisualCraftingScreen.logWarn("Failed to parse mode2MineralCountMin", null);
+                }
+            }
+        });
+        this.addRenderableWidget(this.mode2MineralCountMinEdit);
+
+        this.mode2MineralCountMaxEdit = new EditBox(this.font, this.leftPos + 147 + this.mode2OffsetX, this.topPos + 42, 22, 14, Component.empty());
+        this.mode2MineralCountMaxEdit.setValue(String.valueOf(this.mode2MineralCountMax));
+        this.mode2MineralCountMaxEdit.setFilter(string -> string.isEmpty() || string.matches("\\d{0,3}"));
+        this.mode2MineralCountMaxEdit.setResponder(string -> {
+            if (string.isEmpty()) {
+                this.mode2MineralCountMax = 3;
+            } else {
+                try {
+                    this.mode2MineralCountMax = Math.clamp(Integer.parseInt(string), 1, 999);
+                } catch (Exception exception) {
+                    VisualCraftingScreen.logWarn("Failed to parse mode2MineralCountMax", null);
+                }
+            }
+        });
+        this.addRenderableWidget(this.mode2MineralCountMaxEdit);
+
+        this.mode2ByproductCountMinEdit = new EditBox(this.font, this.leftPos + 111 + this.mode2OffsetX, this.topPos + 76, 22, 14, Component.empty());
+        this.mode2ByproductCountMinEdit.setValue(String.valueOf(this.mode2ByproductCountMin));
+        this.mode2ByproductCountMinEdit.setFilter(string -> string.isEmpty() || string.matches("\\d{0,3}"));
+        this.mode2ByproductCountMinEdit.setResponder(string -> {
+            if (string.isEmpty()) {
+                this.mode2ByproductCountMin = 1;
+            } else {
+                try {
+                    this.mode2ByproductCountMin = Math.clamp(Integer.parseInt(string), 1, 999);
+                } catch (Exception exception) {
+                    VisualCraftingScreen.logWarn("Failed to parse mode2ByproductCountMin", null);
+                }
+            }
+        });
+        this.addRenderableWidget(this.mode2ByproductCountMinEdit);
+
+        this.mode2ByproductCountMaxEdit = new EditBox(this.font, this.leftPos + 148 + this.mode2OffsetX, this.topPos + 76, 22, 14, Component.empty());
+        this.mode2ByproductCountMaxEdit.setValue(String.valueOf(this.mode2ByproductCountMax));
+        this.mode2ByproductCountMaxEdit.setFilter(string -> string.isEmpty() || string.matches("\\d{0,3}"));
+        this.mode2ByproductCountMaxEdit.setResponder(string -> {
+            if (string.isEmpty()) {
+                this.mode2ByproductCountMax = 2;
+            } else {
+                try {
+                    this.mode2ByproductCountMax = Math.clamp(Integer.parseInt(string), 1, 999);
+                } catch (Exception exception) {
+                    VisualCraftingScreen.logWarn("Failed to parse mode2ByproductCountMax", null);
+                }
+            }
+        });
+        this.addRenderableWidget(this.mode2ByproductCountMaxEdit);
+
+
         this.mode2WidgetsInited = true;
         this.reverseParseOreGenFiles();
         this.updateMode2ButtonLabels();
         this.updateMode2ButtonStates();
     }
-
-    private boolean mode5ReturnItem = false;
 
     private void initMode5Widgets() {
 
@@ -4306,15 +5284,13 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
         this.loadMode5Potions();
 
-        int mode5BtnWidth = 46;
-
         int BUTTON_HEIGHT = 16;
 
-        this.mode5BtnSave = Button.builder(Component.literal("保存"), this::onMode5GenerateScript).pos(this.leftPos + 8, this.topPos + 12).size(mode5BtnWidth, BUTTON_HEIGHT).build();
+        this.mode5BtnSave = Button.builder(Component.translatable("gui.visualcrafting.mode5.generate"), this::onMode5GenerateScript).pos(this.leftPos + 8, this.topPos + 12).size(this.autoButtonWidth(Component.translatable("gui.visualcrafting.mode5.generate")), BUTTON_HEIGHT).build();
 
-        this.mode5BtnDelete = Button.builder(Component.literal("删除"), this::onMode5DeleteRecipe).pos(this.leftPos + 8, this.topPos + 31).size(mode5BtnWidth, BUTTON_HEIGHT).build();
+        this.mode5BtnDelete = Button.builder(Component.translatable("gui.visualcrafting.delete_recipe"), this::onMode5DeleteRecipe).pos(this.leftPos + 8, this.topPos + 31).size(this.autoButtonWidth(Component.translatable("gui.visualcrafting.delete_recipe")), BUTTON_HEIGHT).build();
 
-        this.mode5BtnConfig = Button.builder(Component.literal("配置"), this::onMode5Config).pos(this.leftPos + 8, this.topPos + 50).size(mode5BtnWidth, BUTTON_HEIGHT).build();
+        this.mode5BtnConfig = Button.builder(Component.translatable("gui.visualcrafting.config"), this::onMode5Config).pos(this.leftPos + 8, this.topPos + 50).size(this.autoButtonWidth(Component.translatable("gui.visualcrafting.config")), BUTTON_HEIGHT).build();
 
         this.funcButtons.add(this.addRenderableWidget(this.mode5BtnSave));
 
@@ -4322,17 +5298,17 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
         this.funcButtons.add(this.addRenderableWidget(this.mode5BtnConfig));
 
-        VisualCraftingScreen.setSlotX(this.menu.slots.get(0), 93);
+        VisualCraftingScreen.setSlotX(this.menu.slots.get(0), 94);
 
-        VisualCraftingScreen.setSlotY(this.menu.slots.get(0), 16);
+        VisualCraftingScreen.setSlotY(this.menu.slots.get(0), 17);
 
-        VisualCraftingScreen.setSlotX(this.menu.slots.get(1), 93);
+        VisualCraftingScreen.setSlotX(this.menu.slots.get(1), 94);
 
-        VisualCraftingScreen.setSlotY(this.menu.slots.get(1), 39);
+        VisualCraftingScreen.setSlotY(this.menu.slots.get(1), 40);
 
-        this.mode5HungerEdit = new EditBox(this.font, this.leftPos + 144, this.topPos + 16, 24, 16, Component.empty());
+        this.mode5HungerEdit = new EditBox(this.font, this.leftPos + 144, this.topPos + 18, 24, 16, Component.empty());
 
-        this.mode5HungerEdit.setFilter(string -> string.isEmpty() || string.matches("\\d{0,2}"));
+        this.mode5HungerEdit.setFilter(string -> string.isEmpty() || string.matches("\\d{0,4}"));
 
         this.mode5HungerEdit.setValue(String.valueOf(this.mode5Hunger));
 
@@ -4348,7 +5324,7 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
                     int val = Integer.parseInt(string);
 
-                    if (val < 0 || val > 20) {
+                    if (val < 0) {
 
                         this.mode5HungerEdit.setValue("");
 
@@ -4372,7 +5348,7 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
         this.addRenderableWidget(this.mode5HungerEdit);
 
-        this.mode5SaturationEdit = new EditBox(this.font, this.leftPos + 204, this.topPos + 16, 24, 16, Component.empty());
+        this.mode5SaturationEdit = new EditBox(this.font, this.leftPos + 204, this.topPos + 18, 24, 16, Component.empty());
 
         this.mode5SaturationEdit.setFilter(string -> string.isEmpty() || string.matches("\\d*\\.?\\d{0,2}"));
 
@@ -4390,7 +5366,7 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
                     float f = Float.parseFloat(string);
 
-                    if (f < 0.0f || f > 1.0f) {
+                    if (f < 0.0f) {
 
                         this.mode5SaturationEdit.setValue("");
 
@@ -4466,7 +5442,7 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
         this.addRenderableWidget(this.mode5PotionLevelEdit);
 
-        this.mode5DurationEdit = new EditBox(this.font, this.leftPos + 144, this.topPos + 38, 24, 16, Component.empty());
+        this.mode5DurationEdit = new EditBox(this.font, this.leftPos + 144, this.topPos + 41, 24, 16, Component.empty());
 
         this.mode5DurationEdit.setFilter(string -> string.isEmpty() || string.matches("\\d{0,5}"));
 
@@ -4582,21 +5558,13 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
 
         }
 
-        if (this.mode5ReturnItem) {
+        net.minecraft.world.item.ItemStack returnStack = this.menu.slots.get(1).getItem();
 
-            net.minecraft.world.item.ItemStack returnStack = this.menu.slots.get(1).getItem();
+        if (!returnStack.isEmpty()) {
 
-            if (!returnStack.isEmpty()) {
+            String string3 = BuiltInRegistries.ITEM.getKey(returnStack.getItem()).toString();
 
-                String string3 = BuiltInRegistries.ITEM.getKey(returnStack.getItem()).toString();
-
-                stringBuilder.append("    builder.usingConvertsTo(Item.of('").append(string3).append("'));\n");
-
-            } else {
-
-                stringBuilder.append("    builder.usingConvertsTo(Item.of('minecraft:air'));\n");
-
-            }
+            stringBuilder.append("    builder.usingConvertsTo(Item.of('").append(string3).append("'));\n");
 
         } else {
 
@@ -4725,14 +5693,10 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
                 stringBuilder.append(string3);
                 stringBuilder.append(this.buildItemEventsFooter());
             }
-            object = new FileWriter(file2, StandardCharsets.UTF_8);
-            try {
-                ((FileWriter)object).write(stringBuilder.toString());
-            }
-            finally {
-                ((FileWriter)object).close();
-            }
-            this.showStatus(Component.translatable("gui.visualcrafting.mode5.status.saved", new Object[]{string}).getString());
+            JsonObject scriptContent = new JsonObject();
+            scriptContent.addProperty("script", stringBuilder.toString());
+            this.writePending(MergeManager.TYPE_STARTUP_SCRIPTS, "visualcrafting_food.js", scriptContent);
+            this.showStatus(Component.translatable("gui.visualcrafting.mode5.status.saved", new Object[]{string}).getString() + " | " + Component.translatable("gui.visualcrafting.status.reload_hint").getString());
         }
         catch (Exception exception) {
             VisualCraftingScreen.logWarn("Generate script failed: " + exception.getMessage(), exception);
@@ -4797,14 +5761,10 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
                 }
             }
             string4 = string4.replaceAll("\\n{3,}", "\n\n");
-            object = new FileWriter(file, StandardCharsets.UTF_8);
-            try {
-                ((FileWriter)object).write(string4);
-            }
-            finally {
-                ((FileWriter)object).close();
-            }
-            this.showStatus(Component.translatable("gui.visualcrafting.mode5.status.deleted", new Object[]{string}).getString());
+            JsonObject scriptContent = new JsonObject();
+            scriptContent.addProperty("script", string4);
+            this.writePending(MergeManager.TYPE_STARTUP_SCRIPTS, "visualcrafting_food.js", scriptContent);
+            this.showStatus(Component.translatable("gui.visualcrafting.mode5.status.deleted", new Object[]{string}).getString() + " | " + Component.translatable("gui.visualcrafting.status.reload_hint").getString());
         }
         catch (Exception exception) {
             VisualCraftingScreen.logWarn("Delete recipe failed: " + exception.getMessage(), exception);
@@ -4890,16 +5850,16 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
         private void updateMultiMessage() {
         if (this.multiselect) {
         if (this.selectedIndices.isEmpty()) {
-        this.setMessage(Component.literal("\u672a\u9009\u62e9"));
+        this.setMessage(Component.translatable("gui.visualcrafting.label.unselected"));
         } else if (this.selectedIndices.size() == 1) {
         int singleIdx = this.selectedIndices.iterator().next();
         if (singleIdx >= 0 && singleIdx < this.options.size()) {
         this.setMessage(Component.literal(this.options.get(singleIdx)));
         } else {
-        this.setMessage(Component.literal("\u672a\u9009\u62e9"));
+        this.setMessage(Component.translatable("gui.visualcrafting.label.unselected"));
         }
         } else {
-        this.setMessage(Component.literal("\u5df2\u9009\u62e9 " + this.selectedIndices.size() + " \u9879"));
+        this.setMessage(Component.translatable("gui.visualcrafting.label.selected_count", this.selectedIndices.size()));
         }
         }
         }
@@ -5016,7 +5976,7 @@ extends AbstractContainerScreen<VisualCraftingMenu> {
         if (isSelected) {
         graphics.fill(this.getX() + 1, rowY, this.getX() + this.width - 1, rowY + ROW_HEIGHT, 0x40FFFFFF);
         }
-        String checkmark = isSelected ? "\u2611" : "\u2610";
+        String checkmark = isSelected ? "\u2611" : "\u25A1";
         graphics.drawString(VisualCraftingScreen.this.font, checkmark, this.getX() + 4, rowY + 2, isSelected ? 0x55FF55 : 0x808080, false);
         graphics.drawString(VisualCraftingScreen.this.font, this.options.get(optionIdx), this.getX() + 20, rowY + 2, 0xFFFFFF, false);
         continue;

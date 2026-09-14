@@ -4,7 +4,6 @@ import net.minecraft.core.Holder;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.tags.TagKey;
 import net.minecraft.world.level.material.Fluid;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.ModContainer;
@@ -20,12 +19,8 @@ import java.util.Optional;
 
 @EventBusSubscriber(modid = "visualcrafting")
 public class ExperienceFluidFinder {
-    private static final ResourceLocation FALLBACK_ID =
-            ResourceLocation.fromNamespaceAndPath("visualcrafting", "liquid_xp");
-
     private static Fluid targetFluid = null;
     private static ResourceKey<Fluid> lockedFluidKey = null;
-    private static boolean usingFallback = false;
 
     public static Fluid getTargetFluid() {
         validateAndFind();
@@ -38,11 +33,9 @@ public class ExperienceFluidFinder {
      */
     public static List<Fluid> getSortedExperienceFluids() {
         List<Fluid> result = new ArrayList<>();
-        Fluid fallback = BuiltInRegistries.FLUID.get(FALLBACK_ID);
 
         var tagOpt = BuiltInRegistries.FLUID.getTag(Tags.Fluids.EXPERIENCE);
         if (tagOpt.isEmpty()) {
-            if (fallback != null) result.add(fallback);
             return result;
         }
 
@@ -55,7 +48,6 @@ public class ExperienceFluidFinder {
             if (keyOpt.isEmpty()) return;
             Fluid fluid = BuiltInRegistries.FLUID.get(keyOpt.get());
             if (fluid == null) return;
-            if (fallback != null && fluid.isSame(fallback)) return;
             entries.add(new FluidEntry(fluid, getModJarName(holder)));
         });
 
@@ -64,10 +56,6 @@ public class ExperienceFluidFinder {
         for (FluidEntry entry : entries) {
             result.add(entry.fluid);
         }
-
-        if (fallback != null) {
-            result.add(fallback);
-        }
         return result;
     }
 
@@ -75,7 +63,6 @@ public class ExperienceFluidFinder {
     public static void onServerAboutToStart(ServerAboutToStartEvent event) {
         targetFluid = null;
         lockedFluidKey = null;
-        usingFallback = false;
         validateAndFind();
     }
 
@@ -83,14 +70,13 @@ public class ExperienceFluidFinder {
         if (lockedFluidKey != null) {
             Fluid fluid = BuiltInRegistries.FLUID.get(lockedFluidKey);
             if (fluid != null) {
-                if (usingFallback) targetFluid = fluid;
+                targetFluid = fluid;
                 return;
             }
             System.err.println("[VC:ExperienceFluidFinder] Locked fluid "
                     + lockedFluidKey.location() + " disappeared, re-scanning...");
             targetFluid = null;
             lockedFluidKey = null;
-            usingFallback = false;
         }
 
         List<Fluid> sorted = getSortedExperienceFluids();
@@ -99,11 +85,8 @@ public class ExperienceFluidFinder {
             if (keyOpt.isPresent()) {
                 lockedFluidKey = keyOpt.get();
                 targetFluid = fluid;
-                boolean isFallback = BuiltInRegistries.FLUID.get(FALLBACK_ID) != null
-                        && fluid.isSame(BuiltInRegistries.FLUID.get(FALLBACK_ID));
-                usingFallback = isFallback;
                 System.err.println("[VC:ExperienceFluidFinder] Locked experience fluid: "
-                        + lockedFluidKey.location() + (usingFallback ? " (fallback)" : ""));
+                        + lockedFluidKey.location());
                 return;
             }
         }
