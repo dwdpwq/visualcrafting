@@ -594,8 +594,6 @@ public class ModMessages {
                 int maxDamage = requested.getOrDefault(DataComponents.MAX_DAMAGE, 0);
                 if (maxDamage < 0) return;
                 sanitized.set(DataComponents.MAX_DAMAGE, maxDamage);
-            } else {
-                sanitized.remove(DataComponents.MAX_DAMAGE);
             }
 
             if (requested.has(DataComponents.ATTRIBUTE_MODIFIERS)) {
@@ -603,8 +601,6 @@ public class ModMessages {
                         requested.getOrDefault(DataComponents.ATTRIBUTE_MODIFIERS, ItemAttributeModifiers.EMPTY);
                 if (!isValidMode8Attributes(current, requestedMods)) return;
                 sanitized.set(DataComponents.ATTRIBUTE_MODIFIERS, requestedMods);
-            } else {
-                sanitized.remove(DataComponents.ATTRIBUTE_MODIFIERS);
             }
 
             if (requested.has(DataComponents.ENCHANTMENTS)) {
@@ -612,8 +608,6 @@ public class ModMessages {
                         requested.getOrDefault(DataComponents.ENCHANTMENTS, ItemEnchantments.EMPTY);
                 if (!isValidMode8Enchantments(serverPlayer, current, requestedEnchants)) return;
                 sanitized.set(DataComponents.ENCHANTMENTS, requestedEnchants);
-            } else {
-                sanitized.remove(DataComponents.ENCHANTMENTS);
             }
 
             slot.set(sanitized);
