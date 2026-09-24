@@ -4793,7 +4793,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
 
         String attrValue = this.mode8AttrValueEdit.getValue().trim();
         if (!attrValue.isEmpty()) {
-            String attrId = MODE8_ATTRIBUTES[this.mode8AttrDropdown.getSelectedIdx()][1];
+            String attrId = this.mode8AttributeIds.get(Math.clamp(this.mode8AttrDropdown.getSelectedIdx(), 0, this.mode8AttributeIds.size() - 1));
             String slot = MODE8_SLOTS[this.mode8SlotDropdown.getSelectedIdx()];
             String op = String.valueOf(this.mode8OpDropdown.getSelectedIdx());
             String uid = "visualcrafting:vc_" + itemId.replace(':', '_');
@@ -4804,7 +4804,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             sb.append("        item.setAttributeModifiersWithTooltip(__vcMods);\n");
         }
 
-        String enchantId = MODE8_ENCHANTS[this.mode8EnchantDropdown.getSelectedIdx()][1];
+        String enchantId = this.mode8EnchantmentIds.get(Math.clamp(this.mode8EnchantDropdown.getSelectedIdx(), 0, this.mode8EnchantmentIds.size() - 1));
         String level = this.mode8EnchantLevelEdit.getValue().trim();
         if (!level.isEmpty()) {
             sb.append("        item.override('minecraft:enchantments', { levels: { '").append(enchantId).append("': ").append(level).append(" } });\n");
