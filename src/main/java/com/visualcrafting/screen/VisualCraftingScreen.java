@@ -4413,10 +4413,10 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     private List<Mode8RegistryEntry> mode8AttributeEntries() {
         List<Mode8RegistryEntry> entries = new ArrayList<>();
         try {
-            for (Holder.Reference<Attribute> holder : BuiltInRegistries.ATTRIBUTE.listElements().toList()) {
-                ResourceLocation id = BuiltInRegistries.ATTRIBUTE.getKey(holder.value());
-                if (id == null) continue;
-                String key = holder.value().getDescriptionId();
+            for (Map.Entry<ResourceKey<Attribute>, Attribute> registryEntry : BuiltInRegistries.ATTRIBUTE.entrySet()) {
+                Attribute attribute = registryEntry.getValue();
+                ResourceLocation id = registryEntry.getKey().location();
+                String key = attribute.getDescriptionId();
                 String label = Language.getInstance().getOrDefault(key);
                 if (label.equals(key)) label = id.toString();
                 entries.add(new Mode8RegistryEntry(id, label, 0));
@@ -4424,8 +4424,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         } catch (Throwable t) {
             logWarn("Failed to read runtime attribute registry for Mode 8", t);
         }
-        entries.sort((a, b) -> a.id().toString().compareTo(b.id().toString()));
-        return entries;
+
         ItemStack stack = this.menu.slots.get(81).getItem();
         if (stack.get(DataComponents.TOOL) != null) {
             for (int i = 0; i < MODE8_MINING_TIERS.length; i++) {
@@ -4435,6 +4434,8 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             }
         }
 
+        entries.sort((a, b) -> a.id().toString().compareTo(b.id().toString()));
+        return entries;
     }
 
     private List<Mode8RegistryEntry> mode8EnchantmentEntries(ItemStack stack) {
