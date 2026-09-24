@@ -4194,11 +4194,11 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         this.funcButtons.add(this.addRenderableWidget(this.mode7BtnConfig));
         this.funcButtons.add(this.addRenderableWidget(this.mode7BtnTexture));
         int controlX = this.leftPos + 100;
-        this.mode7TypeDropdown = new DropdownWidget(controlX, this.topPos + 13, 108);
+        this.mode7TypeDropdown = new DropdownWidget(this, controlX, this.topPos + 13, 108);
         this.mode7TypeDropdown.setOptions(this.mode7TypeLabels(), 0);
         this.mode7TypeDropdown.setOnSelect(this::onMode7TypeSelect);
         this.addRenderableWidget(this.mode7TypeDropdown);
-        this.mode7SubtypeDropdown = new DropdownWidget(controlX, this.topPos + 33, 108);
+        this.mode7SubtypeDropdown = new DropdownWidget(this, controlX, this.topPos + 33, 108);
         this.mode7SubtypeDropdown.setOptions(this.mode7SubtypeLabels(this.mode7TypeIdx), 0);
         this.mode7SubtypeDropdown.setOnSelect(index -> this.mode7SubtypeIdx = index);
         this.addRenderableWidget(this.mode7SubtypeDropdown);
@@ -4350,20 +4350,20 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         }
 
         int controlX = this.leftPos + 100;
-        this.mode8AttrDropdown = new DropdownWidget(controlX, this.topPos + MODE8_SCROLL_TOP, 108);
+        this.mode8AttrDropdown = new DropdownWidget(this, controlX, this.topPos + MODE8_SCROLL_TOP, 108);
         this.mode8AttrDropdown.setOptions(this.mode8AttrLabels(), 0);
         this.addWidget(this.mode8AttrDropdown);
         this.mode8AttrValueEdit = new EditBox(this.font, controlX, this.topPos + MODE8_SCROLL_TOP + MODE8_ROW_H, 54, 16, Component.empty());
         this.mode8AttrValueEdit.setMaxLength(16);
         this.mode8AttrValueEdit.setFilter(s -> s.matches("[0-9.\\-]*"));
         this.addWidget(this.mode8AttrValueEdit);
-        this.mode8OpDropdown = new DropdownWidget(controlX + 58, this.topPos + MODE8_SCROLL_TOP + MODE8_ROW_H, 82);
+        this.mode8OpDropdown = new DropdownWidget(this, controlX + 58, this.topPos + MODE8_SCROLL_TOP + MODE8_ROW_H, 82);
         this.mode8OpDropdown.setOptions(this.mode8OpLabels(), 0);
         this.addWidget(this.mode8OpDropdown);
-        this.mode8SlotDropdown = new DropdownWidget(controlX, this.topPos + MODE8_SCROLL_TOP + MODE8_ROW_H * 2, 108);
+        this.mode8SlotDropdown = new DropdownWidget(this, controlX, this.topPos + MODE8_SCROLL_TOP + MODE8_ROW_H * 2, 108);
         this.mode8SlotDropdown.setOptions(Arrays.asList(MODE8_SLOT_LABELS_CN), 0);
         this.addWidget(this.mode8SlotDropdown);
-        this.mode8EnchantDropdown = new DropdownWidget(controlX, this.topPos + MODE8_SCROLL_TOP + MODE8_ROW_H * 3, 108);
+        this.mode8EnchantDropdown = new DropdownWidget(this, controlX, this.topPos + MODE8_SCROLL_TOP + MODE8_ROW_H * 3, 108);
         this.mode8EnchantDropdown.setOptions(this.mode8EnchantLabels(), 0);
         this.addWidget(this.mode8EnchantDropdown);
         this.mode8EnchantLevelEdit = new EditBox(this.font, controlX, this.topPos + MODE8_SCROLL_TOP + MODE8_ROW_H * 4, 54, 16, Component.empty());
@@ -5110,7 +5110,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             }
         }
 
-        this.mode2Dropdown = new DropdownWidget(dropX, this.topPos + 6, dropW);
+        this.mode2Dropdown = new DropdownWidget(this, dropX, this.topPos + 6, dropW);
         this.mode2Dropdown.setOptions(arrayList, this.mode2DimIdx);
         this.mode2Dropdown.setOnSelect(n -> {
             this.mode2DimIdx = n;
@@ -5139,7 +5139,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             }
         }
 
-        this.mode2BiomeDropdown = new DropdownWidget(dropX, this.topPos + 24, dropW);
+        this.mode2BiomeDropdown = new DropdownWidget(this, dropX, this.topPos + 24, dropW);
         this.mode2BiomeDropdown.setMultiselect(true);
         this.mode2BiomeDropdown.setOptions(arrayList2, 0);
         this.mode2BiomeDropdown.setSelectedIndices(this.mode2BiomeSelectedIndices);
@@ -5371,7 +5371,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
 
         });
         this.addRenderableWidget(this.mode5SaturationEdit);
-        this.mode5PotionDropdown = new DropdownWidget(this.leftPos + 92, this.topPos + 64, 80);
+        this.mode5PotionDropdown = new DropdownWidget(this, this.leftPos + 92, this.topPos + 64, 80);
         // 单选：每次只配置一个效果，单次添加
         this.mode5PotionDropdown.setOnSelect(this::onMode5PotionSelect);
         this.mode5PotionDropdown.setOptions(this.mode5PotionNames, 0);
@@ -5759,304 +5759,4 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             this.mode5DurationEdit.setValue("30");
         }
     }
-    private class DropdownWidget
-        extends AbstractWidget {
-        private final List<String> options;
-        private int selectedIdx;
-        private int scrollOffset;
-        private boolean expanded;
-        private boolean multiselect;
-        private final Set<Integer> selectedIndices;
-        private IntConsumer onSelect;
-        private static final int ROW_HEIGHT = 14;
-        private static final int MAX_VISIBLE = 10;
-        private static final int BUTTON_HEIGHT = 16;
-        public DropdownWidget(int x, int y, int width) {
-        super(x, y, width, BUTTON_HEIGHT, Component.empty());
-        this.options = new ArrayList<String>();
-        this.selectedIdx = 0;
-        this.scrollOffset = 0;
-        this.expanded = false;
-        this.multiselect = false;
-        this.selectedIndices = new LinkedHashSet<Integer>();
-        this.onSelect = null;
-        }
-
-        public void setOptions(List<String> optionsList, int defaultIdx) {
-        this.options.clear();
-        this.options.addAll(optionsList);
-        this.selectedIdx = Math.clamp(defaultIdx, 0, Math.max(0, optionsList.size() - 1));
-        this.updateMessage();
-        }
-
-        public void setSelected(int index) {
-        this.selectedIdx = Math.clamp(index, 0, Math.max(0, this.options.size() - 1));
-        this.updateMessage();
-        }
-
-        public int getSelectedIdx() {
-        return this.selectedIdx;
-        }
-
-        public boolean isExpanded() {
-        return this.expanded;
-        }
-
-        public void collapse() {
-        this.expanded = false;
-        this.scrollOffset = 0;
-        }
-
-        public void setMultiselect(boolean enabled) {
-        this.multiselect = enabled;
-        }
-
-        public boolean isMultiselect() {
-        return this.multiselect;
-        }
-
-        public Set<Integer> getSelectedIndices() {
-        return this.selectedIndices;
-        }
-
-        public void setOnSelect(IntConsumer callback) {
-        this.onSelect = callback;
-        }
-
-        public void setSelectedIndices(Set<Integer> indices) {
-        this.selectedIndices.clear();
-        if (indices != null) {
-        this.selectedIndices.addAll(indices);
-        }
-
-        this.updateMultiMessage();
-        }
-
-        private void updateMessage() {
-        if (this.selectedIdx >= 0 && this.selectedIdx < this.options.size()) {
-        this.setMessage(Component.literal(this.options.get(this.selectedIdx)));
-        }
-
-        }
-
-        private void updateMultiMessage() {
-        if (this.multiselect) {
-        if (this.selectedIndices.isEmpty()) {
-        this.setMessage(Component.translatable("gui.visualcrafting.label.unselected"));
-        } else if (this.selectedIndices.size() == 1) {
-        int singleIdx = this.selectedIndices.iterator().next();
-        if (singleIdx >= 0 && singleIdx < this.options.size()) {
-        this.setMessage(Component.literal(this.options.get(singleIdx)));
-        } else {
-        this.setMessage(Component.translatable("gui.visualcrafting.label.unselected"));
-        }
-
-        } else {
-        this.setMessage(Component.translatable("gui.visualcrafting.label.selected_count", this.selectedIndices.size()));
-        }
-
-        }
-
-        }
-
-        // Returns Y coordinate of the dropdown panel, flipping upward if it would overflow the GUI bottom
-        private int getDropdownY() {
-        int screenBottom = VisualCraftingScreen.this.topPos + VisualCraftingScreen.this.imageHeight;
-        int dropdownHeight = this.getDropdownHeight();
-        int dropdownY = this.getY() + BUTTON_HEIGHT;
-        if (dropdownY + dropdownHeight > screenBottom) {
-        dropdownY = this.getY() - dropdownHeight;
-        }
-
-        if (dropdownY < VisualCraftingScreen.this.topPos) {
-        dropdownY = VisualCraftingScreen.this.topPos;
-        }
-
-        return dropdownY;
-        }
-
-        private int getDropdownHeight() {
-        return Math.min(this.options.size(), MAX_VISIBLE) * ROW_HEIGHT + 2;
-        }
-
-        private int getVisibleRows() {
-        return Math.min(this.options.size(), MAX_VISIBLE);
-        }
-
-        @Override
-        public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (button != 0) {
-        return false;
-        }
-
-        if (!this.isMouseOver(mouseX, mouseY)) {
-        if (this.expanded) {
-        this.expanded = false;
-        }
-
-        return false;
-        }
-
-        if (mouseY >= (double)this.getY() && mouseY < (double)(this.getY() + BUTTON_HEIGHT)) {
-        this.expanded = !this.expanded;
-        this.scrollOffset = 0;
-        return true;
-        }
-
-        if (this.expanded) {
-        int dropdownY = this.getDropdownY();
-        int localY = (int)(mouseY - (double)dropdownY - 1.0);
-        int clickedOptionIdx = this.scrollOffset + localY / ROW_HEIGHT;
-        if (localY >= 0 && clickedOptionIdx >= 0 && clickedOptionIdx < this.options.size()) {
-        if (this.multiselect) {
-        if (this.selectedIndices.contains(clickedOptionIdx)) {
-        this.selectedIndices.remove(clickedOptionIdx);
-        } else {
-        this.selectedIndices.add(clickedOptionIdx);
-        }
-
-        this.updateMultiMessage();
-        if (this.onSelect != null) {
-        this.onSelect.accept(clickedOptionIdx);
-        }
-
-        return true;
-        }
-
-        this.selectedIdx = clickedOptionIdx;
-        this.updateMessage();
-        this.expanded = false;
-        if (this.onSelect != null) {
-        this.onSelect.accept(clickedOptionIdx);
-        }
-
-        }
-
-        return true;
-        }
-
-        return false;
-        }
-
-        @Override
-        public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
-        if (this.expanded && scrollY != 0.0) {
-        int dropdownY = this.getDropdownY();
-        int dropdownHeight = this.getDropdownHeight();
-        if (mouseX >= (double)this.getX() && mouseX < (double)(this.getX() + this.width)
-                && mouseY >= (double)dropdownY && mouseY < (double)(dropdownY + dropdownHeight)) {
-        int maxScroll = Math.max(0, this.options.size() - this.getVisibleRows());
-        this.scrollOffset = Math.clamp(this.scrollOffset - ((int)Math.signum(scrollY)), 0, maxScroll);
-        return true;
-        }
-
-        return false;
-        }
-
-        return false;
-        }
-
-        @Override
-        public boolean isMouseOver(double mouseX, double mouseY) {
-        if (super.isMouseOver(mouseX, mouseY)) {
-        return true;
-        }
-
-        if (!this.expanded) {
-        return false;
-        }
-
-        int dropdownY = this.getDropdownY();
-        int dropdownHeight = this.getDropdownHeight();
-        return mouseX >= (double)this.getX() && mouseX < (double)(this.getX() + this.width)
-                && mouseY >= (double)dropdownY && mouseY < (double)(dropdownY + dropdownHeight);
-        }
-
-        @Override
-        public void renderWidget(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        int bgColor = this.isHovered ? 0xFF555555 : 0xFF333333;
-        graphics.fill(this.getX(), this.getY(), this.getX() + this.width, this.getY() + BUTTON_HEIGHT, bgColor);
-        graphics.renderOutline(this.getX(), this.getY(), this.width, BUTTON_HEIGHT, -1);
-        int textColor = this.active ? 0xFFFFFF : 0xA0A0A0;
-        graphics.drawString(VisualCraftingScreen.this.font, this.getMessage(), this.getX() + 4, this.getY() + 4, textColor, false);
-        if (this.expanded && !this.options.isEmpty()) {
-        graphics.pose().pushPose();
-        graphics.pose().translate(0.0f, 0.0f, 500.0f);
-        int dropdownY = this.getDropdownY();
-        int dropdownHeight = this.getDropdownHeight();
-        graphics.enableScissor(this.getX(), dropdownY, this.getX() + this.width, dropdownY + dropdownHeight);
-        graphics.fill(this.getX(), dropdownY, this.getX() + this.width, dropdownY + dropdownHeight, 0xFF000000);
-        graphics.renderOutline(this.getX(), dropdownY, this.width, dropdownHeight, -1);
-        int visibleRows = this.getVisibleRows();
-        int rowIndex;
-        for (rowIndex = 0; rowIndex < visibleRows && (this.scrollOffset + rowIndex) < this.options.size(); ++rowIndex) {
-        int optionIdx = this.scrollOffset + rowIndex;
-        int rowY = dropdownY + 1 + rowIndex * ROW_HEIGHT;
-        if (this.multiselect) {
-        boolean isSelected = this.selectedIndices.contains(optionIdx);
-        if (isSelected) {
-        graphics.fill(this.getX() + 1, rowY, this.getX() + this.width - 1, rowY + ROW_HEIGHT, 0x40FFFFFF);
-        }
-
-        String checkmark = isSelected ? "☑" : "☐";
-        graphics.drawString(VisualCraftingScreen.this.font, checkmark, this.getX() + 4, rowY + 2, isSelected ? 0x55FF55 : 0x808080, false);
-        graphics.drawString(VisualCraftingScreen.this.font, this.options.get(optionIdx), this.getX() + 20, rowY + 2, 0xFFFFFF, false);
-        continue;
-        }
-
-        if (optionIdx == this.selectedIdx) {
-        graphics.fill(this.getX() + 1, rowY, this.getX() + this.width - 1, rowY + ROW_HEIGHT, 0x40FFFFFF);
-        }
-
-        graphics.drawString(VisualCraftingScreen.this.font, this.options.get(optionIdx), this.getX() + 4, rowY + 2, 0xFFFFFF, false);
-        }
-
-        if (this.options.size() > visibleRows) {
-        int totalPages = Math.max(0, this.options.size() - visibleRows);
-        String scrollText = (this.scrollOffset + 1) + "/" + (totalPages + 1);
-        int scrollTextWidth = VisualCraftingScreen.this.font.width(scrollText);
-        graphics.drawString(VisualCraftingScreen.this.font, scrollText,
-                this.getX() + this.width - scrollTextWidth - 4, dropdownY + dropdownHeight - 11, 0x808080, false);
-        }
-
-        graphics.disableScissor();
-        graphics.pose().popPose();
-        }
-
-        }
-
-        @Override
-        protected void updateWidgetNarration(NarrationElementOutput narration) {
-        this.defaultButtonNarrationText(narration);
-        }
-
-        }
-    private static class WrappableButton
-        extends Button {
-        public WrappableButton(int x, int y, int width, int height, Component message, Button.OnPress onPress) {
-        super(x, y, width, height, message, onPress, DEFAULT_NARRATION);
-        }
-
-        @Override
-        public void renderString(GuiGraphics graphics, Font font, int color) {
-        Component message = this.getMessage();
-        int maxTextWidth = this.getWidth() - 6;
-        if (font.width(message) <= maxTextWidth) {
-        graphics.drawCenteredString(font, message, this.getX() + this.getWidth() / 2,
-                this.getY() + (this.getHeight() - 8) / 2, color);
-        } else {
-        List<FormattedCharSequence> lines = font.split(message, maxTextWidth);
-        int lineHeight = 9;
-        int totalTextHeight = lines.size() * lineHeight;
-        int startY = this.getY() + (this.getHeight() - totalTextHeight) / 2;
-        for (int i = 0; i < lines.size(); ++i) {
-        graphics.drawCenteredString(font, lines.get(i), this.getX() + this.getWidth() / 2,
-                startY + i * lineHeight, color);
-        }
-
-        }
-
-        }
-
-        }
 }
