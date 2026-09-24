@@ -85,31 +85,49 @@ public class DropdownWidget {
 
     public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTicks) {
         Font font = Minecraft.getInstance().font;
+        final int accent = 0xFF5B8DEF;
+        final int background = 0xF51B2028;
+        final int surface = 0xFF252B34;
+        final int border = 0xFF414957;
+
         if (!this.open) {
-            guiGraphics.fill(this.x, this.y, this.x + this.width, this.y + this.height, -12303292);
-            guiGraphics.fill(this.x + 1, this.y + 1, this.x + this.width - 1, this.y + this.height - 1, -14540254);
+            boolean hovered = this.isMouseOver(mouseX, mouseY);
+            guiGraphics.fill(this.x, this.y, this.x + this.width, this.y + this.height,
+                    hovered ? 0xFF2C3440 : background);
+            guiGraphics.renderOutline(this.x, this.y, this.width, this.height,
+                    hovered ? accent : border);
+
             String displayText = this.getSelectedValue();
             if (displayText.length() > 25) {
                 displayText = displayText.substring(0, 22) + "...";
             }
-            guiGraphics.drawString(font, displayText, this.x + 4, this.y + (this.height - 8) / 2, 0xFFFFFF);
-            guiGraphics.drawString(font, "\u25bc", this.x + this.width - 14, this.y + (this.height - 8) / 2, 0xAAAAAA);
+            guiGraphics.drawString(font, displayText, this.x + 5,
+                    this.y + (this.height - 8) / 2, 0xFFE3E8EF, false);
+            guiGraphics.drawString(font, "\u25BE", this.x + this.width - 13,
+                    this.y + (this.height - 8) / 2, 0xFF9EA8B8, false);
             return;
         }
+
         int dropdownHeight = Math.min(this.options.size(), this.visibleRows) * 14 + 4;
-        guiGraphics.fill(this.x, this.y, this.x + this.width, this.y + dropdownHeight, -870178270);
+        guiGraphics.fill(this.x, this.y, this.x + this.width, this.y + dropdownHeight, background);
+        guiGraphics.renderOutline(this.x, this.y, this.width, dropdownHeight, accent);
+
         int maxRow = Math.min(this.scrollOffset + this.visibleRows, this.options.size());
         for (int i = this.scrollOffset; i < maxRow; ++i) {
             int rowY = this.y + 2 + (i - this.scrollOffset) * 14;
             boolean hovered = mouseX >= this.x && mouseX <= this.x + this.width
                     && mouseY >= rowY && mouseY <= rowY + 14;
-            int color = hovered ? -11184811 : (i == this.selectedIdx ? -12303360 : -13421773);
-            guiGraphics.fill(this.x, rowY, this.x + this.width, rowY + 14, color);
+            int color = hovered ? 0xFF354257 : (i == this.selectedIdx ? 0xFF2A3444 : surface);
+            guiGraphics.fill(this.x + 2, rowY, this.x + this.width - 2, rowY + 14, color);
+            if (i == this.selectedIdx) {
+                guiGraphics.fill(this.x + 2, rowY, this.x + 4, rowY + 14, accent);
+            }
+
             String optionText = this.options.get(i);
             if (optionText.length() > 25) {
                 optionText = optionText.substring(0, 22) + "...";
             }
-            guiGraphics.drawString(font, optionText, this.x + 4, rowY + 3, 0xFFFFFF);
+            guiGraphics.drawString(font, optionText, this.x + 6, rowY + 3, 0xFFE3E8EF, false);
         }
     }
 
