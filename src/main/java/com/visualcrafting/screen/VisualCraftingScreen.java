@@ -4732,6 +4732,21 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             sb.append("        item.maxDamage = ").append(durability).append(";\n");
         }
 
+        if (this.mode8ToolTierDropdown != null && !this.mode8ToolTierDropdown.getMessage().getString().isEmpty()) {
+            ItemStack currentStack = this.menu.slots.get(81).getItem();
+            if (currentStack.get(DataComponents.TOOL) != null) {
+                int tierIdx = Math.clamp(this.mode8ToolTierDropdown.getSelectedIdx(), 0, MODE8_TOOL_TIER_IDS.length - 1);
+                int level = switch (MODE8_TOOL_TIER_IDS[tierIdx]) {
+                    case "stone" -> 1;
+                    case "iron" -> 2;
+                    case "diamond" -> 3;
+                    case "netherite" -> 4;
+                    default -> 0;
+                };
+                sb.append("        item.modifyTier(tier => { tier.level = ").append(level).append("; });\\n");
+            }
+        }
+
         String attrValue = this.mode8AttrValueEdit.getValue().trim();
         if (!attrValue.isEmpty()) {
             String attrId = MODE8_ATTRIBUTES[this.mode8AttrDropdown.getSelectedIdx()][1];
