@@ -95,7 +95,6 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.TieredItem;
 import net.minecraft.world.item.component.ItemAttributeModifiers;
-import net.minecraft.world.item.component.Tool;
 import net.minecraft.world.item.enchantment.Enchantment;
 import net.minecraft.world.item.enchantment.ItemEnchantments;
 import net.minecraft.tags.TagKey;
@@ -335,19 +334,64 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     Button mode7BtnTexture;
     String mode7TexturePath = null;
     // ===================== Mode 8: 物品增强标签页（属性/附魔/耐久 + 自动类型检测 + 滚动） =====================
-    private record Mode8RegistryEntry(ResourceLocation id, String label, int maxLevel) {}
-
+    static final String[][] MODE8_ATTRIBUTES = new String[][]{
+            {"Attack Damage", "minecraft:generic.attack_damage"},
+            {"Attack Speed", "minecraft:generic.attack_speed"},
+            {"Armor", "minecraft:generic.armor"},
+            {"Armor Toughness", "minecraft:generic.armor_toughness"},
+            {"Max Health", "minecraft:generic.max_health"},
+            {"Movement Speed", "minecraft:generic.movement_speed"},
+            {"Knockback Resistance", "minecraft:generic.knockback_resistance"},
+            {"Luck", "minecraft:generic.luck"}
+    };
     static final String[] MODE8_ATTR_OPS = new String[]{"gui.visualcrafting.mode8.op.add", "gui.visualcrafting.mode8.op.mult_base", "gui.visualcrafting.mode8.op.mult_total"};
     static final String[] MODE8_SLOTS = new String[]{"any", "mainhand", "offhand", "head", "chest", "legs", "feet"};
-    private String mode8RegistrySignature = "";
-    private static final String[] MODE8_MINING_TIERS = new String[]{"wood", "stone", "iron", "diamond", "netherite"};
-    private static final String[] MODE8_MINING_TIER_LABELS = new String[]{"木质", "石质", "铁质", "钻石", "下界合金"};
-    private boolean mode8MiningTierChanged = false;
-    private String mode8LastItemId = "";
+    static final String[][] MODE8_ENCHANTS = new String[][]{
+            {"Sharpness", "minecraft:sharpness"},
+            {"Smite", "minecraft:smite"},
+            {"Bane of Arthropods", "minecraft:bane_of_arthropods"},
+            {"Knockback", "minecraft:knockback"},
+            {"Fire Aspect", "minecraft:fire_aspect"},
+            {"Looting", "minecraft:looting"},
+            {"Sweeping Edge", "minecraft:sweeping_edge"},
+            {"Efficiency", "minecraft:efficiency"},
+            {"Silk Touch", "minecraft:silk_touch"},
+            {"Unbreaking", "minecraft:unbreaking"},
+            {"Fortune", "minecraft:fortune"},
+            {"Protection", "minecraft:protection"},
+            {"Fire Protection", "minecraft:fire_protection"},
+            {"Blast Protection", "minecraft:blast_protection"},
+            {"Projectile Protection", "minecraft:projectile_protection"},
+            {"Feather Falling", "minecraft:feather_falling"},
+            {"Respiration", "minecraft:respiration"},
+            {"Aqua Affinity", "minecraft:aqua_affinity"},
+            {"Thorns", "minecraft:thorns"},
+            {"Depth Strider", "minecraft:depth_strider"},
+            {"Swift Sneak", "minecraft:swift_sneak"},
+            {"Soul Speed", "minecraft:soul_speed"},
+            {"Mending", "minecraft:mending"},
+            {"Power", "minecraft:power"},
+            {"Punch", "minecraft:punch"},
+            {"Flame", "minecraft:flame"},
+            {"Infinity", "minecraft:infinity"},
+            {"Luck of the Sea", "minecraft:luck_of_the_sea"},
+            {"Lure", "minecraft:lure"},
+            {"Multishot", "minecraft:multishot"},
+            {"Piercing", "minecraft:piercing"},
+            {"Quick Charge", "minecraft:quick_charge"},
+            {"Channeling", "minecraft:channeling"},
+            {"Riptide", "minecraft:riptide"},
+            {"Loyalty", "minecraft:loyalty"},
+            {"Impaling", "minecraft:impaling"},
+            {"Curse of Vanishing", "minecraft:vanishing_curse"},
+            {"Curse of Binding", "minecraft:binding_curse"}
+    };
     static final int MODE8_SCROLL_TOP = 33;
     static final int MODE8_ROW_H = 16;
     int mode8ScrollOffset = 0;
+    private static final String[] MODE8_ATTR_LABELS_CN = new String[]{"攻击伤害", "攻击速度", "护甲值", "护甲韧性", "最大生命", "移动速度", "击退抗性", "幸运"};
     private static final String[] MODE8_SLOT_LABELS_CN = new String[]{"任意", "主手", "副手", "头盔", "胸甲", "护腿", "靴子"};
+    private static final String[] MODE8_ENCHANT_LABELS_CN = new String[]{"锋利", "亡灵杀手", "节肢杀手", "击退", "火焰附加", "抢夺", "横扫之刃", "效率", "精准采集", "耐久", "时运", "保护", "火焰保护", "爆炸保护", "弹射物保护", "摔落保护", "水下呼吸", "水下速掘", "荆棘", "深海探索者", "迅捷潜行", "灵魂疾行", "经验修补", "力量", "冲击", "火矢", "无限", "海之眷顾", "饵钓", "多重射击", "穿透", "快速装填", "引雷", "激流", "忠诚", "穿刺", "消失诅咒", "绑定诅咒"};
     int mode8DetectedType = 0;
     DropdownWidget mode8AttrDropdown;
     DropdownWidget mode8OpDropdown;
@@ -2355,86 +2399,75 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     }
 
     protected void renderBg(GuiGraphics guiGraphics, float partialTicks, int mouseX, int mouseY) {
-        // 1.7.11 unified visual shell:
-        // - neutral canvas instead of the old texture-heavy background
-        // - consistent card/panel language for every tab
-        // - compact tab strip and separate inventory footer
-        // - mode-specific renderers remain responsible for their actual controls/content
-        final int x = this.leftPos;
-        final int y = this.topPos;
-        final int w = this.imageWidth;
-        final int h = this.imageHeight;
-        final int accent = 0xFF5B8DEF;
-        final int panel = 0xF51E2229;
-        final int panelAlt = 0xF8171A20;
-        final int border = 0xFF3B424D;
-        final int borderSoft = 0xFF2D333C;
-
-        guiGraphics.fill(x - 2, y - 2, x + w + 2, y + h + 2, 0xC0101216);
-        guiGraphics.fill(x, y, x + w, y + h, panel);
-
-        // Main content card. Keep the inventory area visually separate.
-        int contentBottom = y + h - 86;
-        guiGraphics.fill(x + 4, y + 4, x + w - 4, contentBottom, panelAlt);
-        guiGraphics.renderOutline(x + 4, y + 4, w - 8, contentBottom - y - 4, borderSoft);
-
-        // Header/tab strip.
+        RenderSystem.setShader(GameRenderer::getPositionTexShader);
+        RenderSystem.setShaderColor(1.0f, 1.0f, 1.0f, 1.0f);
+        guiGraphics.fill(this.leftPos, this.topPos, this.leftPos + this.imageWidth, this.topPos + this.imageHeight, -1072689136);
         int tabWidth = 24;
         int tabHeight = 24;
         int tabGap = 3;
-        int tabStartX = x + 8;
-        int tabStartY = y - 26;
-        guiGraphics.fill(tabStartX - 4, tabStartY - 4,
-                tabStartX + (tabWidth + tabGap) * 7 - tabGap + 4,
-                tabStartY + tabHeight + 4, 0xE8181C23);
-        guiGraphics.renderOutline(tabStartX - 4, tabStartY - 4,
-                (tabWidth + tabGap) * 7 - tabGap + 8, tabHeight + 8, border);
+        int tabStartX = this.leftPos + 8;
+        int tabStartY = this.topPos - 26;
+        int craftIconX = tabStartX + 4;
+        int craftIconY = tabStartY + 4;
+        guiGraphics.blit(TAB_CRAFT, craftIconX, craftIconY, 0.0f, 0.0f, 16, 16, 16, 16);
+        if (this.mode == 0) {
+            guiGraphics.renderOutline(tabStartX, tabStartY, tabWidth, tabHeight, -256);
+        }
 
-        this.renderVisualTab(guiGraphics, TAB_CRAFT, ICON_CRAFT, 0, tabStartX, tabStartY, tabWidth, tabHeight, tabGap, accent);
-        this.renderVisualTab(guiGraphics, TAB_INFUSE, ICON_INFUSE, 1, tabStartX, tabStartY, tabWidth, tabHeight, tabGap, accent);
-        this.renderVisualTab(guiGraphics, TAB_ORE, null, 2, tabStartX, tabStartY, tabWidth, tabHeight, tabGap, accent);
-        this.renderVisualTab(guiGraphics, TAB_FOOD, null, 5, tabStartX, tabStartY, tabWidth, tabHeight, tabGap, accent);
-        this.renderVisualTab(guiGraphics, null, ICON_NAME, 6, tabStartX, tabStartY, tabWidth, tabHeight, tabGap, accent);
-        this.renderVisualTab(guiGraphics, null, ICON_CREATE, 7, tabStartX, tabStartY, tabWidth, tabHeight, tabGap, accent);
-        this.renderVisualTab(guiGraphics, null, ICON_ENHANCE, 8, tabStartX, tabStartY, tabWidth, tabHeight, tabGap, accent);
+        int infuseIconX = tabStartX + tabWidth + tabGap + 4;
+        guiGraphics.blit(TAB_INFUSE, infuseIconX, craftIconY, 0.0f, 0.0f, 16, 16, 16, 16);
+        if (this.mode == 1) {
+            guiGraphics.renderOutline(tabStartX + tabWidth + tabGap, tabStartY, tabWidth, tabHeight, -256);
+        }
 
-        // Small mode marker in the content header. It intentionally does not depend
-        // on a translation key so this visual layer cannot break localization.
-        String modeText = switch (this.mode) {
-            case 0 -> "CRAFT";
-            case 1 -> "INFUSE";
-            case 2 -> "WORLD";
-            case 5 -> "FOOD";
-            case 6 -> "NAME";
-            case 7 -> "CREATE";
-            case 8 -> "ENHANCE";
-            default -> "VISUAL";
-        };
-        guiGraphics.drawString(this.font, modeText, x + 10, y + 7, 0xFFB8C2D1, false);
-        guiGraphics.fill(x + 10, y + 18, x + 10 + this.font.width(modeText), y + 19, accent);
+        int oreIconX = tabStartX + (tabWidth + tabGap) * 2 + 4;
+        guiGraphics.blit(TAB_ORE, oreIconX, craftIconY, 0.0f, 0.0f, 16, 16, 16, 16);
+        if (this.mode == 2) {
+            guiGraphics.renderOutline(tabStartX + (tabWidth + tabGap) * 2, tabStartY, tabWidth, tabHeight, -256);
+        }
 
-        // Inventory footer card.
-        int invTop = y + h - 82;
-        guiGraphics.fill(x + 4, invTop - 3, x + w - 4, y + h - 4, 0xF51A1E25);
-        guiGraphics.renderOutline(x + 4, invTop - 3, w - 8, 78, border);
+        int tabFoodIconX = tabStartX + (tabWidth + tabGap) * 3 + 4;
+        guiGraphics.blit(TAB_FOOD, tabFoodIconX, craftIconY, 0.0f, 0.0f, 16, 16, 16, 16);
+                if (this.mode == 5) {
+            guiGraphics.renderOutline(tabStartX + (tabWidth + tabGap) * 3, tabStartY, tabWidth, tabHeight, -256);
+        }
 
-        // Existing mode-specific content and slot outlines are deliberately preserved.
+        int tabNameIconX = tabStartX + (tabWidth + tabGap) * 4 + 4;
+        guiGraphics.renderItem(ICON_NAME, tabNameIconX, craftIconY);
+        if (this.mode == 6) {
+            guiGraphics.renderOutline(tabStartX + (tabWidth + tabGap) * 4, tabStartY, tabWidth, tabHeight, -256);
+        }
+
+        int tabCreateIconX = tabStartX + (tabWidth + tabGap) * 5 + 4;
+        guiGraphics.renderItem(ICON_CREATE, tabCreateIconX, craftIconY);
+        if (this.mode == 7) {
+            guiGraphics.renderOutline(tabStartX + (tabWidth + tabGap) * 5, tabStartY, tabWidth, tabHeight, -256);
+        }
+
+        int tabEnhanceIconX = tabStartX + (tabWidth + tabGap) * 6 + 4;
+        guiGraphics.renderItem(ICON_ENHANCE, tabEnhanceIconX, craftIconY);
+        if (this.mode == 8) {
+            guiGraphics.renderOutline(tabStartX + (tabWidth + tabGap) * 6, tabStartY, tabWidth, tabHeight, -256);
+        }
+
         if (this.mode == 0) {
             int gridSize = this.getGridSize();
             int gridX = this.slotAbsX(0) + this.invLineOffsetX;
             int gridY = this.slotAbsY(0) + this.invLineOffsetY;
-            guiGraphics.renderOutline(gridX, gridY, gridSize * 18, gridSize * 18, 0xFF707A88);
+            guiGraphics.renderOutline(gridX, gridY, gridSize * 18, gridSize * 18, -1);
             for (int i = 0; i < gridSize; ++i) {
                 for (int j = 0; j < gridSize; ++j) {
                     this.renderSlotOutline(guiGraphics, i * gridSize + j);
                 }
+
             }
+
             this.renderSlotOutline(guiGraphics, 81);
             this.renderCraftList(guiGraphics, mouseX, mouseY);
         } else if (this.mode == 1) {
             this.renderInfusingExtras(guiGraphics);
             this.renderInfuseList(guiGraphics, mouseX, mouseY);
-        } else if (this.mode == 5) {
+                } else if (this.mode == 5) {
             this.renderMode5Extras(guiGraphics, mouseX, mouseY);
         } else if (this.mode == 6) {
             this.renderNameExtras(guiGraphics, mouseX, mouseY);
@@ -2449,33 +2482,8 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         for (int slotIdx = 82; slotIdx < this.menu.slots.size(); ++slotIdx) {
             this.renderSlotOutline(guiGraphics, slotIdx);
         }
-    }
 
-    private void renderVisualTab(GuiGraphics guiGraphics, ResourceLocation texture, ItemStack item,
-                                 int tabMode, int tabStartX, int tabStartY, int tabWidth,
-                                 int tabHeight, int tabGap, int accent) {
-        int tx = tabStartX + (tabWidth + tabGap) * (tabMode == 0 ? 0 :
-                tabMode == 1 ? 1 :
-                tabMode == 2 ? 2 :
-                tabMode == 5 ? 3 :
-                tabMode == 6 ? 4 :
-                tabMode == 7 ? 5 : 6);
-        boolean selected = this.mode == tabMode;
-        guiGraphics.fill(tx, tabStartY, tx + tabWidth, tabStartY + tabHeight,
-                selected ? 0xFF2D3A52 : 0xFF20252D);
-        guiGraphics.renderOutline(tx, tabStartY, tabWidth, tabHeight,
-                selected ? accent : 0xFF3B424D);
-        if (texture != null) {
-            guiGraphics.blit(texture, tx + 4, tabStartY + 4, 0.0f, 0.0f, 16, 16, 16, 16);
-        } else if (item != null) {
-            guiGraphics.renderItem(item, tx + 4, tabStartY + 4);
-        }
-        if (selected) {
-            guiGraphics.fill(tx + 4, tabStartY + tabHeight - 2,
-                    tx + tabWidth - 4, tabStartY + tabHeight - 1, accent);
-        }
     }
-
 
     private void renderCraftList(GuiGraphics guiGraphics, int mouseX, int mouseY) {
         int listX = this.leftPos + this.imageWidth - 88 + this.recipesOffsetX;
@@ -4344,10 +4352,6 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         int controlX = this.leftPos + 100;
         this.mode8AttrDropdown = new DropdownWidget(controlX, this.topPos + MODE8_SCROLL_TOP, 108);
         this.mode8AttrDropdown.setOptions(this.mode8AttrLabels(), 0);
-        this.mode8AttrDropdown.setOnSelect(index -> {
-            Mode8RegistryEntry entry = this.mode8SelectedAttribute();
-            this.mode8MiningTierChanged = this.isMode8MiningTierEntry(entry);
-        });
         this.addWidget(this.mode8AttrDropdown);
         this.mode8AttrValueEdit = new EditBox(this.font, controlX, this.topPos + MODE8_SCROLL_TOP + MODE8_ROW_H, 54, 16, Component.empty());
         this.mode8AttrValueEdit.setMaxLength(16);
@@ -4367,8 +4371,8 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         this.mode8EnchantLevelEdit.setFilter(s -> s.matches("[0-9]*"));
         this.addWidget(this.mode8EnchantLevelEdit);
         this.mode8DurabilityEdit = new EditBox(this.font, controlX, this.topPos + MODE8_SCROLL_TOP + MODE8_ROW_H * 5, 108, 16, Component.empty());
-        this.mode8DurabilityEdit.setMaxLength(10);
-        this.mode8DurabilityEdit.setFilter(s -> s.matches("-?[0-9]*"));
+        this.mode8DurabilityEdit.setMaxLength(9);
+        this.mode8DurabilityEdit.setFilter(s -> s.matches("[0-9]*"));
         this.addWidget(this.mode8DurabilityEdit);
         this.mode8BtnGenerate = Button.builder(Component.translatable("gui.visualcrafting.mode8.generate"), this::onMode8GenerateScript).pos(this.leftPos + 8, this.topPos + 12).size(this.autoButtonWidth(Component.translatable("gui.visualcrafting.mode8.generate")), 16).build();
         this.mode8BtnConfig = Button.builder(Component.translatable("gui.visualcrafting.config"), this::onMode8Config).pos(this.leftPos + 8, this.topPos + 31).size(this.autoButtonWidth(Component.translatable("gui.visualcrafting.config")), 16).build();
@@ -4380,14 +4384,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     }
 
     private List<String> mode8AttrLabels() {
-        List<String> labels = new ArrayList<>();
-        for (Mode8RegistryEntry entry : mode8AttributeEntries()) {
-            labels.add(entry.label());
-        }
-        if (labels.isEmpty()) {
-            labels.add(Component.translatable("gui.visualcrafting.mode8.label.no_attributes").getString());
-        }
-        return labels;
+        return Arrays.asList(MODE8_ATTR_LABELS_CN);
     }
 
     private List<String> mode8OpLabels() {
@@ -4400,151 +4397,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     }
 
     private List<String> mode8EnchantLabels() {
-        List<String> labels = new ArrayList<>();
-        for (Mode8RegistryEntry entry : mode8EnchantmentEntries(this.menu.slots.get(81).getItem())) {
-            labels.add(entry.label());
-        }
-        if (labels.isEmpty()) {
-            labels.add(Component.translatable("gui.visualcrafting.mode8.label.no_enchantments").getString());
-        }
-        return labels;
-    }
-
-    private List<Mode8RegistryEntry> mode8AttributeEntries() {
-        List<Mode8RegistryEntry> entries = new ArrayList<>();
-        try {
-            for (Map.Entry<ResourceKey<Attribute>, Attribute> registryEntry : BuiltInRegistries.ATTRIBUTE.entrySet()) {
-                Attribute attribute = registryEntry.getValue();
-                ResourceLocation id = registryEntry.getKey().location();
-                String key = attribute.getDescriptionId();
-                String label = Language.getInstance().getOrDefault(key);
-                if (label.equals(key)) label = id.toString();
-                entries.add(new Mode8RegistryEntry(id, label, 0));
-            }
-        } catch (Throwable t) {
-            logWarn("Failed to read runtime attribute registry for Mode 8", t);
-        }
-
-        ItemStack stack = this.menu.slots.get(81).getItem();
-        if (stack.get(DataComponents.TOOL) != null) {
-            for (int i = 0; i < MODE8_MINING_TIERS.length; i++) {
-                entries.add(new Mode8RegistryEntry(
-                        ResourceLocation.fromNamespaceAndPath("visualcrafting", "mining_tier_" + MODE8_MINING_TIERS[i]),
-                        "挖掘等级：" + MODE8_MINING_TIER_LABELS[i], 1));
-            }
-        }
-
-        entries.sort((a, b) -> a.id().toString().compareTo(b.id().toString()));
-        return entries;
-    }
-
-    private List<Mode8RegistryEntry> mode8EnchantmentEntries(ItemStack stack) {
-        List<Mode8RegistryEntry> entries = new ArrayList<>();
-        if (this.minecraft == null || this.minecraft.level == null) return entries;
-        try {
-            Optional<HolderLookup.RegistryLookup<Enchantment>> lookupOpt =
-                    this.minecraft.level.registryAccess().lookup(Registries.ENCHANTMENT);
-            if (lookupOpt.isEmpty()) return entries;
-
-            lookupOpt.get().listElements().forEach(holder -> {
-                if (!stack.isEmpty() && !stack.supportsEnchantment(holder)) return;
-                ResourceLocation id = holder.key().location();
-                String key = "enchantment." + id.getNamespace() + "." + id.getPath();
-                String label = Language.getInstance().getOrDefault(key);
-                if (label.equals(key)) label = id.toString();
-                entries.add(new Mode8RegistryEntry(id, label, holder.value().getMaxLevel()));
-            });
-        } catch (Throwable t) {
-            logWarn("Failed to read runtime enchantment registry for Mode 8", t);
-        }
-        entries.sort((a, b) -> a.id().toString().compareTo(b.id().toString()));
-        return entries;
-    }
-
-    private void refreshMode8RegistryOptions(boolean force) {
-        if (this.mode8AttrDropdown == null || this.mode8EnchantDropdown == null) return;
-
-        ItemStack stack = this.menu.slots.get(81).getItem();
-        String itemId = stack.isEmpty() ? "<empty>" : BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
-        int attrCount = (int) BuiltInRegistries.ATTRIBUTE.stream().count();
-        int enchantCount = this.minecraft != null && this.minecraft.level != null
-                ? this.minecraft.level.registryAccess().lookup(Registries.ENCHANTMENT).map(lookup -> (int) lookup.listElements().count()).orElse(0)
-                : 0;
-        String signature = itemId + "|" + attrCount + "|" + enchantCount;
-        if (!force && signature.equals(this.mode8RegistrySignature)) return;
-
-        ResourceLocation selectedAttr = mode8SelectedAttributeId();
-        ResourceLocation selectedEnchant = mode8SelectedEnchantmentId();
-        this.mode8RegistrySignature = signature;
-
-        List<Mode8RegistryEntry> attrs = mode8AttributeEntries();
-        this.mode8AttrDropdown.setOptions(mode8AttrLabels(), findMode8EntryIndex(attrs, selectedAttr));
-
-        List<Mode8RegistryEntry> enchants = mode8EnchantmentEntries(stack);
-        this.mode8EnchantDropdown.setOptions(mode8EnchantLabels(), findMode8EntryIndex(enchants, selectedEnchant));
-    }
-
-    private static int findMode8EntryIndex(List<Mode8RegistryEntry> entries, ResourceLocation id) {
-        if (id == null) return 0;
-        for (int i = 0; i < entries.size(); i++) {
-            if (id.equals(entries.get(i).id())) return i;
-        }
-        return 0;
-    }
-
-    private ResourceLocation mode8SelectedAttributeId() {
-        if (this.mode8AttrDropdown == null) return null;
-        List<Mode8RegistryEntry> entries = mode8AttributeEntries();
-        int index = this.mode8AttrDropdown.getSelectedIdx();
-        return index >= 0 && index < entries.size() ? entries.get(index).id() : null;
-    }
-
-    private ResourceLocation mode8SelectedEnchantmentId() {
-        if (this.mode8EnchantDropdown == null) return null;
-        List<Mode8RegistryEntry> entries = mode8EnchantmentEntries(this.menu.slots.get(81).getItem());
-        int index = this.mode8EnchantDropdown.getSelectedIdx();
-        return index >= 0 && index < entries.size() ? entries.get(index).id() : null;
-    }
-
-    private Mode8RegistryEntry mode8SelectedAttribute() {
-        List<Mode8RegistryEntry> entries = mode8AttributeEntries();
-        int index = this.mode8AttrDropdown.getSelectedIdx();
-        return index >= 0 && index < entries.size() ? entries.get(index) : null;
-    }
-
-    private Mode8RegistryEntry mode8SelectedEnchantment() {
-        List<Mode8RegistryEntry> entries = mode8EnchantmentEntries(this.menu.slots.get(81).getItem());
-        int index = this.mode8EnchantDropdown.getSelectedIdx();
-        return index >= 0 && index < entries.size() ? entries.get(index) : null;
-    }
-
-    private boolean isMode8MiningTierEntry(Mode8RegistryEntry entry) {
-        return entry != null && "visualcrafting".equals(entry.id().getNamespace())
-                && entry.id().getPath().startsWith("mining_tier_");
-    }
-
-    private int mode8SelectedMiningTier() {
-        Mode8RegistryEntry entry = this.mode8SelectedAttribute();
-        if (!this.isMode8MiningTierEntry(entry)) return 0;
-        String tierName = entry.id().getPath().substring("mining_tier_".length());
-        for (int i = 0; i < MODE8_MINING_TIERS.length; i++) {
-            if (MODE8_MINING_TIERS[i].equals(tierName)) return i;
-        }
-        return 0;
-    }
-
-    private int mode8DetectMiningTier(ItemStack stack) {
-        Tool tool = stack.get(DataComponents.TOOL);
-        if (tool == null) return 0;
-        for (Tool.Rule rule : tool.rules()) {
-            Optional<TagKey<net.minecraft.world.level.block.Block>> key = rule.blocks().unwrapKey();
-            if (key.isEmpty() || !"minecraft".equals(key.get().location().getNamespace())) continue;
-            String path = key.get().location().getPath();
-            for (int i = 0; i < MODE8_MINING_TIERS.length; i++) {
-                if (path.equals("incorrect_for_" + MODE8_MINING_TIERS[i] + "_tool")) return i;
-            }
-        }
-        return 0;
+        return Arrays.asList(MODE8_ENCHANT_LABELS_CN);
     }
 
     int mode8MaxScroll() {
@@ -4607,13 +4460,6 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         this.drawWrapped(guiGraphics, this.font, Component.translatable("gui.visualcrafting.mode8.label.level"), controlX - 5 - this.font.width(Component.translatable("gui.visualcrafting.mode8.label.level")), y0 + MODE8_ROW_H * 4 + 2, 60, 4210752);
         this.drawWrapped(guiGraphics, this.font, Component.translatable("gui.visualcrafting.mode8.label.durability"), controlX - 5 - this.font.width(Component.translatable("gui.visualcrafting.mode8.label.durability")), y0 + MODE8_ROW_H * 5 + 2, 60, 4210752);
         ItemStack stack = this.menu.slots.get(81).getItem();
-        String currentMode8ItemId = stack.isEmpty() ? "<empty>" : BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
-        if (!currentMode8ItemId.equals(this.mode8LastItemId)) {
-            this.mode8LastItemId = currentMode8ItemId;
-            this.mode8MiningTierChanged = false;
-            this.mode8DurabilityEdit.setValue(String.valueOf(stack.getOrDefault(DataComponents.MAX_DAMAGE, 0)));
-        }
-        this.refreshMode8RegistryOptions(false);
         this.mode8DetectedType = this.mode8DetectType(stack);
         this.renderSlotOutline(guiGraphics, 81);
         Component detect;
@@ -4720,33 +4566,18 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             String durability = this.mode8DurabilityEdit.getValue().trim();
             if (!durability.isEmpty()) {
                 int value = Integer.parseInt(durability);
-                if (value < -1) {
-                    throw new NumberFormatException("durability must be >= -1");
+                if (value < 0) {
+                    throw new NumberFormatException("durability must be >= 0");
                 }
 
                 modified.set(DataComponents.MAX_DAMAGE, value);
                 changed = true;
             }
 
-            if (this.mode8MiningTierChanged) {
-                Tool currentTool = modified.get(DataComponents.TOOL);
-                if (currentTool == null) throw new IllegalArgumentException("item has no tool component");
-                int tier = this.mode8SelectedMiningTier();
-                TagKey<net.minecraft.world.level.block.Block> incorrectTag = TagKey.create(Registries.BLOCK, ResourceLocation.fromNamespaceAndPath("minecraft", "incorrect_for_" + MODE8_MINING_TIERS[tier] + "_tool"));
-                TagKey<net.minecraft.world.level.block.Block> pickaxeTag = TagKey.create(Registries.BLOCK, ResourceLocation.fromNamespaceAndPath("minecraft", "mineable/pickaxe"));
-                List<Tool.Rule> rules = new ArrayList<>();
-                rules.add(Tool.Rule.deniesDrops(incorrectTag));
-                rules.add(Tool.Rule.minesAndDrops(pickaxeTag, currentTool.defaultMiningSpeed()));
-                modified.set(DataComponents.TOOL, new Tool(rules, currentTool.defaultMiningSpeed(), currentTool.damagePerBlock()));
-                changed = true;
-            }
-
             String attrValue = this.mode8AttrValueEdit.getValue().trim();
             if (!attrValue.isEmpty()) {
                 double amount = Double.parseDouble(attrValue);
-                Mode8RegistryEntry attrEntry = this.mode8SelectedAttribute();
-                if (attrEntry == null) throw new IllegalArgumentException("no attribute selected");
-                String attrId = attrEntry.id().toString();
+                String attrId = MODE8_ATTRIBUTES[this.mode8AttrDropdown.getSelectedIdx()][1];
                 String slot = MODE8_SLOTS[this.mode8SlotDropdown.getSelectedIdx()];
                 int opIdx = this.mode8OpDropdown.getSelectedIdx();
                 if (opIdx < 0 || opIdx >= AttributeModifier.Operation.values().length) {
@@ -4783,9 +4614,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
                     throw new NumberFormatException("enchant level must be > 0");
                 }
 
-                Mode8RegistryEntry enchantEntry = this.mode8SelectedEnchantment();
-                if (enchantEntry == null) throw new IllegalArgumentException("no enchantment selected");
-                String enchantId = enchantEntry.id().toString();
+                String enchantId = MODE8_ENCHANTS[this.mode8EnchantDropdown.getSelectedIdx()][1];
                 Holder<Enchantment> ench = this.minecraft.level.registryAccess()
                         .lookup(Registries.ENCHANTMENT)
                         .flatMap(lookup -> lookup.get(ResourceKey.create(Registries.ENCHANTMENT, ResourceLocation.parse(enchantId))))
@@ -4796,10 +4625,6 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
 
                 ItemEnchantments.Mutable mutable = new ItemEnchantments.Mutable(
                         modified.getOrDefault(DataComponents.ENCHANTMENTS, ItemEnchantments.EMPTY));
-                int maxLevel = ench.value().getMaxLevel();
-                if (maxLevel > 0 && lvl > maxLevel) {
-                    throw new NumberFormatException("enchant level must be <= " + maxLevel);
-                }
                 mutable.set(ench, lvl);
                 modified.set(DataComponents.ENCHANTMENTS, mutable.toImmutable());
                 changed = true;
@@ -4849,14 +4674,9 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             sb.append("        item.maxDamage = ").append(durability).append(";\n");
         }
 
-        if (this.mode8MiningTierChanged) {
-            int miningTier = this.mode8SelectedMiningTier();
-            sb.append("        item.tier = tier => { tier.level = ").append(miningTier).append("; };\n");
-        }
-
         String attrValue = this.mode8AttrValueEdit.getValue().trim();
         if (!attrValue.isEmpty()) {
-            String attrId = this.mode8SelectedAttribute().id().toString();
+            String attrId = MODE8_ATTRIBUTES[this.mode8AttrDropdown.getSelectedIdx()][1];
             String slot = MODE8_SLOTS[this.mode8SlotDropdown.getSelectedIdx()];
             String op = String.valueOf(this.mode8OpDropdown.getSelectedIdx());
             String uid = "visualcrafting:vc_" + itemId.replace(':', '_');
@@ -4867,7 +4687,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             sb.append("        item.setAttributeModifiersWithTooltip(__vcMods);\n");
         }
 
-        String enchantId = this.mode8SelectedEnchantment().id().toString();
+        String enchantId = MODE8_ENCHANTS[this.mode8EnchantDropdown.getSelectedIdx()][1];
         String level = this.mode8EnchantLevelEdit.getValue().trim();
         if (!level.isEmpty()) {
             sb.append("        item.override('minecraft:enchantments', { levels: { '").append(enchantId).append("': ").append(level).append(" } });\n");
