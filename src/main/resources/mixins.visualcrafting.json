@@ -4,6 +4,9 @@
   "package": "com.visualcrafting.mixin",
   "plugin": "com.visualcrafting.mixin.VisualCraftingMixinPlugin",
   "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "WorldGenRegionBlockDisableMixin"
+  ],
   "client": [
     "AEBaseScreenMixin"
   ],

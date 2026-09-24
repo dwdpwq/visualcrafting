@@ -7,6 +7,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
+import com.visualcrafting.worldgen.OreDisableRegistry;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.level.storage.LevelResource;
 
@@ -20,8 +21,10 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 玩家配方/内容编辑暂存合并管理器。
@@ -67,10 +70,15 @@ public class MergeManager {
     private final Path outputBase;
     /** worldgen 数据包输出根目录（世界目录下 datapacks/visualcrafting/data/visualcrafting） */
     private final Path worldgenBase;
+    /** worldgen 数据包根目录（世界目录下 datapacks/visualcrafting），放置 pack.mcmeta 与禁用清单 */
+    private final Path datapackRoot;
     /** KubeJS 启动脚本输出根目录（实例根目录下 kubejs/startup_scripts，与 screen 写盘基准一致） */
     private final Path startupScriptsBase;
 
     private final Map<String, List<PendingOperation>> operations = new HashMap<>();
+    /** 本次合并读入的被禁矿物短名集合（来自数据包根目录的禁用清单） */
+    private Set<String> disabledShortNames = new LinkedHashSet<>();
+    private boolean disabledOresLoaded = false;
     private int mergedCount = 0;
     private int deletedCount = 0;
 
@@ -82,6 +90,7 @@ public class MergeManager {
         this.outputBase = worldRoot.resolve("kubejs").resolve("data");
         this.worldgenBase = worldRoot.resolve("datapacks").resolve("visualcrafting")
                 .resolve("data").resolve("visualcrafting");
+        this.datapackRoot = this.worldgenBase.getParent().getParent();
         this.startupScriptsBase = instanceRoot.resolve("kubejs").resolve("startup_scripts");
     }
 
@@ -90,6 +99,7 @@ public class MergeManager {
      * 调用时机：服务端启动、{@code /reload} 或手动执行。
      */
     public void mergeAll() {
+        loadDisabledOres();
         if (!Files.isDirectory(pendingDir)) {
             log("[MergeManager] 暂存目录不存在: " + pendingDir.toAbsolutePath() + "，跳过合并");
             return;
@@ -199,6 +209,9 @@ public class MergeManager {
             Files.createDirectories(output.getParent());
             if (TYPE_WORLDGEN.equals(type)) {
                 ensurePackMcmeta(output);
+                qualifyWorldgenReferences(recipeId, merged);
+                enforceOreDisable(recipeId, key, merged);
+                enforceRemoveFeatures(recipeId, key, merged);
             }
             if (TYPE_STARTUP_SCRIPTS.equals(type)) {
                 // 启动脚本为纯文本文件，content 中 script 字段保存完整文本
@@ -210,6 +223,9 @@ public class MergeManager {
                 }
             }
             log("[MergeManager] 条目 " + key + " 合并完成，输出: " + output);
+            if (TYPE_WORLDGEN.equals(type) && isDisabledPlacedFeature(recipeId)) {
+                verifyDisabledOverride(key, output);
+            }
             mergedCount++;
         } catch (IOException e) {
             log("[MergeManager] 写出条目失败 " + output + ": " + e.getMessage());
@@ -252,6 +268,41 @@ public class MergeManager {
         }
     }
 
+    /**
+     * worldgen 数据包写出前的命名空间规范化（兜底防线）。
+     * <p>历史遗留的暂存/归档 JSON（pending、backup）与旧版本 mod 生成的模板可能存在裸名资源引用，
+     * 重放写入数据包时会被 Minecraft 补成默认命名空间 minecraft:，导致注册表未绑定
+     * （Unbound values in registry）世界加载失败。此处对写出的 worldgen JSON 统一补全
+     * visualcrafting: 前缀，确保最终落盘的数据包资源引用一律自带命名空间。</p>
+     */
+    private void qualifyWorldgenReferences(String recipeId, JsonObject content) {
+        if (recipeId.startsWith("worldgen/placed_feature/")) {
+            JsonElement feature = content.get("feature");
+            if (feature != null && feature.isJsonPrimitive()) {
+                String featureId = feature.getAsString();
+                if (!featureId.contains(":")) {
+                    content.addProperty("feature", "visualcrafting:" + featureId);
+                    log("[MergeManager] placed_feature " + recipeId + " 的 feature 字段补全命名空间: visualcrafting:" + featureId);
+                }
+            }
+        } else if (recipeId.startsWith("neoforge/biome_modifier/")) {
+            JsonElement features = content.get("features");
+            if (features != null && features.isJsonArray()) {
+                JsonArray array = features.getAsJsonArray();
+                for (int i = 0; i < array.size(); i++) {
+                    JsonElement element = array.get(i);
+                    if (element != null && element.isJsonPrimitive()) {
+                        String featureId = element.getAsString();
+                        if (!featureId.contains(":")) {
+                            array.set(i, new JsonPrimitive("visualcrafting:" + featureId));
+                            log("[MergeManager] biome_modifier " + recipeId + " 的 features[" + i + "] 补全命名空间: visualcrafting:" + featureId);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /** 按类型路由输出路径 */
     private Path resolveOutputPath(String type, String recipeId) {
         if (TYPE_WORLDGEN.equals(type)) {
@@ -271,22 +322,114 @@ public class MergeManager {
         return outputBase.resolve(parts[0]).resolve("recipes").resolve(parts[1] + ".json");
     }
 
-    /** worldgen 数据包输出前确保 pack.mcmeta 存在（pack_format 57），否则数据包无法被游戏加载 */
+    /** worldgen 数据包输出前确保 pack.mcmeta 存在且 pack_format 与当前 MC 版本一致（1.21/1.21.1 = 48） */
     private void ensurePackMcmeta(Path outputFile) {
         try {
-            // worldgenBase = .../datapacks/visualcrafting/data/visualcrafting
-            // datapackRoot = .../datapacks/visualcrafting（向上两级）
-            Path datapackRoot = worldgenBase.getParent().getParent();
-            Path mcmeta = datapackRoot.resolve("pack.mcmeta");
-            if (!Files.exists(mcmeta)) {
-                Files.createDirectories(datapackRoot);
-                Files.writeString(mcmeta,
-                        "{\n  \"pack\": {\n    \"pack_format\": 57,\n    \"description\": \"VisualCrafting Ore Generation\"\n  }\n}",
-                        StandardCharsets.UTF_8);
-                log("[MergeManager] worldgen 数据包缺少 pack.mcmeta，已自动补全: " + mcmeta);
+            if (OreDisableRegistry.ensurePackMcmeta(this.datapackRoot.toFile())) {
+                log("[MergeManager] worldgen 数据包 pack.mcmeta 已写入/修正（pack_format="
+                        + OreDisableRegistry.DATAPACK_FORMAT + "）: " + this.datapackRoot.resolve("pack.mcmeta"));
             }
-        } catch (IOException e) {
+        } catch (Exception e) {
             log("[MergeManager] 补全 pack.mcmeta 失败: " + e.getMessage());
+        }
+    }
+
+    /** 读入数据包根目录的矿物禁用清单（合并前统一刷新，避免使用过期缓存） */
+    private void loadDisabledOres() {
+        this.disabledShortNames = OreDisableRegistry.disabledShortNames(this.datapackRoot.toFile());
+        this.disabledOresLoaded = true;
+        if (!this.disabledShortNames.isEmpty()) {
+            log("[MergeManager] 已读入被禁矿物清单 " + this.disabledShortNames + "（来源: "
+                    + this.datapackRoot.resolve(OreDisableRegistry.FILE_NAME) + "）");
+        }
+    }
+
+    /** 该 worldgen 条目是否为被禁矿物的 placed_feature（禁用清单以矿物短名为维度） */
+    private boolean isDisabledPlacedFeature(String recipeId) {
+        if (recipeId == null || !recipeId.startsWith(OreDisableRegistry.PLACED_FEATURE_DIR)) {
+            return false;
+        }
+        if (!this.disabledOresLoaded) {
+            loadDisabledOres();
+        }
+        String placedId = recipeId.substring(OreDisableRegistry.PLACED_FEATURE_DIR.length());
+        for (String shortName : this.disabledShortNames) {
+            if (placedId.equals(OreDisableRegistry.mineralPlacedId(shortName))
+                    || placedId.equals(OreDisableRegistry.byproductPlacedId(shortName))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 写出侧兜底防线：被禁矿物的 placed_feature 一律强制把生成数量置 0。
+     * <p>玩家之后再次「生成/更新矿物」（pending 中携带正常生成数量）、或历史遗留 JSON 被重放时，
+     * 只要矿物仍在禁用清单中，落盘结果的数量仍为 0，禁用不会复发。</p>
+     */
+    private void enforceOreDisable(String recipeId, String key, JsonObject content) {
+        if (!isDisabledPlacedFeature(recipeId)) {
+            return;
+        }
+        boolean changed = OreDisableRegistry.forceZeroCount(content);
+        log("[MergeManager] 条目 " + key + " 命中矿物禁用清单，已强制将生成数量置 0"
+                + (changed ? "（本次修正了 count 字段）" : "（数量原本已为 0）"));
+    }
+
+    /**
+     * 写出侧兜底防线（通用单方块禁用）：remove_features biome modifier 的 features 一律强制
+     * 与禁用清单中反查记录的 placed_feature id 列表保持一致。
+     * <p>玩家之后再次生成/更新、或历史遗留 JSON 被重放时，只要矿物仍在禁用清单中，
+     * 落盘结果的 features 仍指向被禁的 placed_feature，外部生成不会复发。</p>
+     */
+    private void enforceRemoveFeatures(String recipeId, String key, JsonObject content) {
+        String shortName = OreDisableRegistry.extractShortNameFromRemoveModifier(recipeId);
+        if (shortName == null) {
+            return;
+        }
+        if (!this.disabledOresLoaded) {
+            loadDisabledOres();
+        }
+        if (!this.disabledShortNames.contains(shortName)) {
+            return;
+        }
+
+        List<String> placedIds = OreDisableRegistry.loadPlacedFeatures(this.datapackRoot.toFile(), shortName);
+        if (placedIds.isEmpty()) {
+            return;
+        }
+
+        JsonArray features = new JsonArray();
+        for (String id : placedIds) {
+            features.add(id);
+        }
+        content.add("features", features);
+        if (!content.has("type") || !content.get("type").isJsonPrimitive()
+                || !"neoforge:remove_features".equals(content.get("type").getAsString())) {
+            content.addProperty("type", "neoforge:remove_features");
+        }
+        log("[MergeManager] 条目 " + key + " 命中通用方块禁用清单，已强制 features = " + placedIds);
+    }
+
+    /**
+     * 禁用覆盖落盘后的生效校验：读回文件确认所有 minecraft:count 均为 0、feature 引用自带命名空间；
+     * 不通过时重写一次并再次校验，仍失败则打印错误日志便于排查。
+     */
+    private void verifyDisabledOverride(String key, Path output) {
+        try {
+            JsonObject onDisk = JsonParser.parseString(Files.readString(output, StandardCharsets.UTF_8)).getAsJsonObject();
+            if (OreDisableRegistry.verifyZeroCount(onDisk) && OreDisableRegistry.hasQualifiedFeature(onDisk)) {
+                log("[MergeManager] 禁用生效校验通过：条目 " + key + " 生成数量为 0 → " + output);
+                return;
+            }
+            log("[MergeManager][ERROR] 禁用生效校验失败，尝试重写：条目 " + key + " → " + output);
+            OreDisableRegistry.forceZeroCount(onDisk);
+            Files.writeString(output, GSON.toJson(onDisk), StandardCharsets.UTF_8);
+            JsonObject again = JsonParser.parseString(Files.readString(output, StandardCharsets.UTF_8)).getAsJsonObject();
+            boolean ok = OreDisableRegistry.verifyZeroCount(again) && OreDisableRegistry.hasQualifiedFeature(again);
+            log("[MergeManager] 重写后禁用校验：" + (ok ? "通过" : "仍失败（请检查禁用清单与数据包写入权限）"));
+        } catch (Exception e) {
+            log("[MergeManager][ERROR] 禁用生效校验异常：条目 " + key + " → " + e.getMessage());
         }
     }
 

@@ -23,7 +23,7 @@ import java.util.UUID;
 public class VisualCraftingBlockEntity extends BlockEntity {
     private static final int MAX_RECIPES = 100;
 
-    /** tier：0=3x3 起，1=5x5，2=7x7，3=9x9；format：0=KUBEJS / 1=CRT；mode：0=合成 / 1=灌注 / 2=贸易 / 5=食物脚本 / 6=命名牌。 */
+    /** tier：0=3x3 起，1=5x5，2=7x7，3=9x9；format：0=KUBEJS / 1=CRT；mode：0=合成 / 1=灌注 / 2=贸易 / 5=食物脚本 / 6=命名牌 / 7=创建物品脚本。 */
     public static final int MIN_TIER = 0;
     public static final int MAX_TIER = 3;
     public static final int MIN_FORMAT = 0;
@@ -33,9 +33,11 @@ public class VisualCraftingBlockEntity extends BlockEntity {
     public static final int MODE_TRADE = 2;
     public static final int MODE_FOOD = 5;
     public static final int MODE_NAME = 6;
+    public static final int MODE_CREATE = 7;
+    public static final int MODE_ENHANCE = 8;
     /** 界面实际使用的合法模式；历史遗留的 3 / 4 为空洞值，一律视为非法。 */
     private static final int[] VALID_MODES = {
-            MODE_CRAFTING, MODE_INFUSING, MODE_TRADE, MODE_FOOD, MODE_NAME
+            MODE_CRAFTING, MODE_INFUSING, MODE_TRADE, MODE_FOOD, MODE_NAME, MODE_CREATE, MODE_ENHANCE
     };
 
     /** 模式是否为界面支持的合法值（3 / 4 等历史遗留值返回 false）。 */

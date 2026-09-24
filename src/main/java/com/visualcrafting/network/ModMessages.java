@@ -8,6 +8,7 @@ import com.google.gson.JsonParser;
 import com.visualcrafting.block.VisualCraftingBlockEntity;
 import com.visualcrafting.recipe.RecipeRegistrar;
 import com.visualcrafting.screen.VisualCraftingScreen;
+import com.visualcrafting.worldgen.BlockDisableRegistry;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.BlockPos;
@@ -25,12 +26,16 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.tags.TagKey;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.component.CustomData;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.biome.Biome;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.dimension.LevelStem;
 import net.minecraft.world.level.storage.LevelResource;
@@ -88,8 +93,21 @@ public class ModMessages {
             ResourceLocation.fromNamespaceAndPath("visualcrafting", "delete_trade");
     public static final ResourceLocation DELETE_TRADE_RESPONSE_ID =
             ResourceLocation.fromNamespaceAndPath("visualcrafting", "delete_trade_response");
+    public static final ResourceLocation DISABLE_BLOCK_ID =
+            ResourceLocation.fromNamespaceAndPath("visualcrafting", "disable_block");
+    public static final ResourceLocation SYNC_DISABLED_BLOCKS_ID =
+            ResourceLocation.fromNamespaceAndPath("visualcrafting", "sync_disabled_blocks");
+    public static final ResourceLocation REQUEST_DISABLED_BLOCKS_ID =
+            ResourceLocation.fromNamespaceAndPath("visualcrafting", "request_disabled_blocks");
 
     private static DimensionBiomesData cachedDimBiomesData;
+
+    /** 客户端缓存的运行时 Block 级禁用名单（由 SyncDisabledBlocksPacket 维护，GUI 据此判断封禁/解封）。 */
+    private static Set<ResourceLocation> cachedDisabledBlocks = Set.of();
+
+    public static Set<ResourceLocation> getCachedDisabledBlocks() {
+        return cachedDisabledBlocks;
+    }
 
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
 
@@ -133,6 +151,11 @@ public class ModMessages {
                 ModMessages::handleDeleteTrade);
         registrar.playToClient(DeleteTradeResponsePacket.TYPE, DeleteTradeResponsePacket.STREAM_CODEC,
                 ModMessages::handleDeleteTradeResponse);
+        registrar.playToServer(DisableBlockPacket.TYPE, DisableBlockPacket.STREAM_CODEC, ModMessages::handleDisableBlock);
+        registrar.playToServer(RequestDisabledBlocksPacket.TYPE, RequestDisabledBlocksPacket.STREAM_CODEC,
+                ModMessages::handleRequestDisabledBlocks);
+        registrar.playToClient(SyncDisabledBlocksPacket.TYPE, SyncDisabledBlocksPacket.STREAM_CODEC,
+                ModMessages::handleSyncDisabledBlocks);
     }
 
     // ===== Utility =====
@@ -395,9 +418,11 @@ public class ModMessages {
     }
 
     public static DimensionBiomesData getCachedDimBiomesData() {
-        DimensionBiomesData data = cachedDimBiomesData;
-        cachedDimBiomesData = null;
-        return data;
+        return cachedDimBiomesData;
+    }
+
+    public static void setCachedDimBiomesData(DimensionBiomesData data) {
+        cachedDimBiomesData = data;
     }
 
     // ===== Crafting recipe handlers =====
@@ -637,23 +662,65 @@ public class ModMessages {
             try {
                 var registryAccess = serverPlayer.server.registryAccess();
                 var dims = registryAccess.registryOrThrow(Registries.LEVEL_STEM);
+                var biomeRegistry = registryAccess.registryOrThrow(Registries.BIOME);
+                TagKey<Biome> tagOverworld = TagKey.create(Registries.BIOME, ResourceLocation.fromNamespaceAndPath("minecraft", "is_overworld"));
+                TagKey<Biome> tagNether = TagKey.create(Registries.BIOME, ResourceLocation.fromNamespaceAndPath("minecraft", "is_nether"));
+                TagKey<Biome> tagEnd = TagKey.create(Registries.BIOME, ResourceLocation.fromNamespaceAndPath("minecraft", "is_end"));
 
                 for (Map.Entry<ResourceKey<LevelStem>, LevelStem> entry : dims.entrySet()) {
                     String dimId = entry.getKey().location().toString();
                     dimIds.add(dimId);
 
                     try {
-                        var biomeSource = entry.getValue().generator().getBiomeSource();
-                        Set<Holder<net.minecraft.world.level.biome.Biome>> biomes = biomeSource.possibleBiomes();
                         List<String> biomeList = new ArrayList<>();
-                        for (Holder<?> holder : biomes) {
-                            holder.unwrapKey().ifPresent(key -> {
-                                String id = key.location().toString();
-                                biomeList.add(id);
-                                if (!allBiomes.contains(id)) {
-                                    allBiomes.add(id);
+                        TagKey<Biome> categoryTag = null;
+                        if (dimId.equals("minecraft:overworld")) {
+                            categoryTag = tagOverworld;
+                        } else if (dimId.equals("minecraft:the_nether")) {
+                            categoryTag = tagNether;
+                        } else if (dimId.equals("minecraft:the_end")) {
+                            categoryTag = tagEnd;
+                        }
+
+                        if (categoryTag != null) {
+                            // 主世界/下界/末地：原版标签群系 ∪ biomeSource.possibleBiomes()
+                            // 标签保证单群系/虚空世界分类完整；possibleBiomes 纳入 TerraBlender/BOP 等模组动态注入的群系
+                            final TagKey<Biome> resolvedTag = categoryTag;
+                            biomeRegistry.holders().forEach(holder -> {
+                                if (holder.is(resolvedTag)) {
+                                    String id = holder.key().location().toString();
+                                    biomeList.add(id);
+                                    if (!allBiomes.contains(id)) {
+                                        allBiomes.add(id);
+                                    }
                                 }
                             });
+                            // 合并 biomeSource 实际可能的群系（含模组动态注入，如 TerraBlender/BOP）
+                            var biomeSource = entry.getValue().generator().getBiomeSource();
+                            Set<Holder<Biome>> possibleBiomes = biomeSource.possibleBiomes();
+                            for (Holder<?> holder : possibleBiomes) {
+                                holder.unwrapKey().ifPresent(key -> {
+                                    String id = key.location().toString();
+                                    if (!biomeList.contains(id)) {
+                                        biomeList.add(id);
+                                    }
+                                    if (!allBiomes.contains(id)) {
+                                        allBiomes.add(id);
+                                    }
+                                });
+                            }
+                        } else {
+                            var biomeSource = entry.getValue().generator().getBiomeSource();
+                            Set<Holder<Biome>> biomes = biomeSource.possibleBiomes();
+                            for (Holder<?> holder : biomes) {
+                                holder.unwrapKey().ifPresent(key -> {
+                                    String id = key.location().toString();
+                                    biomeList.add(id);
+                                    if (!allBiomes.contains(id)) {
+                                        allBiomes.add(id);
+                                    }
+                                });
+                            }
                         }
                         biomesByDim.put(dimId, biomeList);
                     } catch (Exception ignored) {
@@ -662,7 +729,6 @@ public class ModMessages {
                 }
 
                 // Include all registered biomes not already covered
-                var biomeRegistry = registryAccess.registryOrThrow(Registries.BIOME);
                 for (var biomeEntry : biomeRegistry.entrySet()) {
                     String id = biomeEntry.getKey().location().toString();
                     if (!allBiomes.contains(id)) {
@@ -692,18 +758,22 @@ public class ModMessages {
 
     private static void handleSyncDimBiomes(SyncDimBiomesPacket packet, IPayloadContext ctx) {
         ctx.enqueueWork(() -> {
+            // 无论 GUI 是否打开，都更新内存缓存，保证后续打开时命中最新数据
+            cachedDimBiomesData = packet.data;
             Screen screen = Minecraft.getInstance().screen;
             if (screen instanceof VisualCraftingScreen vcScreen) {
                 vcScreen.applyDimBiomesData(packet.data);
-            } else {
-                cachedDimBiomesData = packet.data;
             }
 
             try {
                 File vcDir = new File(Minecraft.getInstance().gameDirectory, "visualcrafting");
                 vcDir.mkdirs();
                 File cacheFile = new File(vcDir, "dim_biomes_cache.json");
-                Files.writeString(cacheFile.toPath(), packet.data.toJson(), StandardCharsets.UTF_8);
+                DimensionBiomesData cacheData = packet.data;
+                if (cacheData.sourceVersion == null || cacheData.sourceVersion.isEmpty()) {
+                    cacheData.sourceVersion = Minecraft.getInstance().getLaunchedVersion();
+                }
+                Files.writeString(cacheFile.toPath(), cacheData.toJson(), StandardCharsets.UTF_8);
             } catch (Exception e) {
                 System.err.println("[VisualCrafting] Failed to save dim/biome client cache: " + e.getMessage());
             }
@@ -1355,5 +1425,49 @@ public class ModMessages {
 
         @Override
         public Type<DeleteTradeResponsePacket> type() { return TYPE; }
+    }
+
+    // ===== Block disable (runtime) handlers =====
+
+    private static void handleDisableBlock(DisableBlockPacket packet, IPayloadContext ctx) {
+        ctx.enqueueWork(() -> {
+            Player player = ctx.player();
+            if (!(player instanceof ServerPlayer serverPlayer)) return;
+
+            // 权限校验：必须对着已加载且可达的合成桌操作
+            if (getAccessibleTable(serverPlayer, packet.pos()) == null) return;
+
+            Block block = BuiltInRegistries.BLOCK.get(packet.blockId());
+            if (block == null || block == Blocks.AIR) return;
+            // 核心地形方块硬保护：封禁会挖空地表/破坏流体，服务端直接拒绝
+            if (packet.disable() && BlockDisableRegistry.isProtected(block)) return;
+
+            boolean changed = packet.disable()
+                    ? BlockDisableRegistry.add(block)
+                    : BlockDisableRegistry.remove(block);
+            if (changed) {
+                BlockDisableRegistry.save(serverPlayer.server.getWorldPath(LevelResource.ROOT));
+            }
+            // 广播全量（同时充当操作回执：客户端收到即代表服务端已采纳）
+            PacketDistributor.sendToAllPlayers(new SyncDisabledBlocksPacket(BlockDisableRegistry.snapshotIds()));
+        });
+    }
+
+    private static void handleRequestDisabledBlocks(RequestDisabledBlocksPacket packet, IPayloadContext ctx) {
+        ctx.enqueueWork(() -> {
+            Player player = ctx.player();
+            if (!(player instanceof ServerPlayer serverPlayer)) return;
+            PacketDistributor.sendToPlayer(serverPlayer, new SyncDisabledBlocksPacket(BlockDisableRegistry.snapshotIds()));
+        });
+    }
+
+    private static void handleSyncDisabledBlocks(SyncDisabledBlocksPacket packet, IPayloadContext ctx) {
+        ctx.enqueueWork(() -> {
+            cachedDisabledBlocks = Set.copyOf(packet.disabledBlocks());
+            Screen screen = Minecraft.getInstance().screen;
+            if (screen instanceof VisualCraftingScreen vcScreen) {
+                vcScreen.applyDisabledBlocks();
+            }
+        });
     }
 }

@@ -1,0 +1,99 @@
+WARNING: A restricted method in java.lang.System has been called
+WARNING: java.lang.System::load has been called by net.rubygrapefruit.platform.internal.NativeLibraryLoader in an unnamed module (file:/C:/Users/73166/.gradle/wrapper/dists/gradle-8.13-bin/5xuhj0ry160q40clulazy9h7d/gradle-8.13/lib/native-platform-0.22-milestone-28.jar)
+WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
+WARNING: Restricted methods will be blocked in a future release unless native access is enabled
+
+
+> Task :createMinecraftArtifacts
+Loaded 145 artifacts from E:\visualcrafting-dev\build\tmp\createMinecraftArtifacts\nfrt_artifact_manifest.properties
+[1m*** Started working on [4mdownloadJson[0m[0m
+ [1m[92mDONE [0m Completed [4mdownloadJson[0m in 0.01s
+[1m*** Started working on [4mdownloadClientMappings[0m[0m
+[1m*** Started working on [4mdownloadServer[0m[0m
+[1m*** Started working on [4mdownloadClient[0m[0m
+ [1m[92mDONE [0m Completed [4mdownloadClientMappings[0m in 0.02s
+ [1m[92mDONE [0m Completed [4mdownloadServer[0m in 0.02s
+ [1m[92mDONE [0m Completed [4mdownloadClient[0m in 0.02s
+[1m*** Started working on [4mmergeMappings[0m[0m
+ [1m[92mREUSE[0m Used cache of [4mmergeMappings[0m in 0.00s
+[1m*** Started working on [4mstripClient[0m[0m
+ [1m[92mREUSE[0m Used cache of [4mstripClient[0m in 0.00s
+[1m*** Started working on [4mextractServer[0m[0m
+ [1m[92mREUSE[0m Used cache of [4mextractServer[0m in 0.00s
+[1m*** Started working on [4mstripServer[0m[0m
+ [1m[92mREUSE[0m Used cache of [4mstripServer[0m in 0.00s
+[1m*** Started working on [4mmerge[0m[0m
+ [1m[92mREUSE[0m Used cache of [4mmerge[0m in 0.00s
+[1m*** Started working on [4mrename[0m[0m
+ [1m[92mREUSE[0m Used cache of [4mrename[0m in 0.00s
+[1m*** Started working on [4mdecompile[0m[0m
+ [1m[92mREUSE[0m Used cache of [4mdecompile[0m in 0.00s
+[1m*** Started working on [4minject[0m[0m
+ [1m[92mREUSE[0m Used cache of [4minject[0m in 0.00s
+[1m*** Started working on [4mpatch[0m[0m
+ [1m[92mREUSE[0m Used cache of [4mpatch[0m in 0.00s
+[1m*** Started working on [4mapplyNeoforgePatches[0m[0m
+ [1m[92mREUSE[0m Used cache of [4mapplyNeoforgePatches[0m in 0.00s
+[1m*** Started working on [4mtransformSources[0m[0m
+ [1m[92mREUSE[0m Used cache of [4mtransformSources[0m in 0.00s
+[1m*** Started working on [4mrecompile[0m[0m
+ [1m[92mREUSE[0m Used cache of [4mrecompile[0m in 0.00s
+[1m*** Started working on [4msourcesWithNeoForge[0m[0m
+ [1m[92mREUSE[0m Used cache of [4msourcesWithNeoForge[0m in 0.00s
+[1m*** Started working on [4mcompiledWithNeoForge[0m[0m
+ [1m[92mREUSE[0m Used cache of [4mcompiledWithNeoForge[0m in 0.00s
+[1m*** Started working on [4msourcesAndCompiledWithNeoForge[0m[0m
+ [1m[92mREUSE[0m Used cache of [4msourcesAndCompiledWithNeoForge[0m in 0.00s
+Total runtime: 0.80s
+
+
+> Task :compileJava
+E:\visualcrafting-dev\src\main\java\com\visualcrafting\item\FurnaceCardRegistrar.java:48: 警告: [removal] EventBusSubscriber 中的 bus() 已过时, 且标记为待删除
+    @EventBusSubscriber(modid = "visualcrafting", bus = EventBusSubscriber.Bus.GAME)
+                                                  ^
+E:\visualcrafting-dev\src\main\java\com\visualcrafting\item\FurnaceCardRegistrar.java:48: 警告: [removal] EventBusSubscriber 中的 Bus 已过时, 且标记为待删除
+    @EventBusSubscriber(modid = "visualcrafting", bus = EventBusSubscriber.Bus.GAME)
+                                                                          ^
+E:\visualcrafting-dev\src\main\java\com\visualcrafting\item\FurnaceCardRegistrar.java:64: 警告: [removal] EventBusSubscriber 中的 bus() 已过时, 且标记为待删除
+    @EventBusSubscriber(modid = "visualcrafting", bus = EventBusSubscriber.Bus.MOD)
+                                                  ^
+E:\visualcrafting-dev\src\main\java\com\visualcrafting\item\FurnaceCardRegistrar.java:64: 警告: [removal] EventBusSubscriber 中的 Bus 已过时, 且标记为待删除
+    @EventBusSubscriber(modid = "visualcrafting", bus = EventBusSubscriber.Bus.MOD)
+                                                                          ^
+E:\visualcrafting-dev\src\main\java\com\visualcrafting\merge\MergeManagerEvents.java:20: 警告: [removal] EventBusSubscriber 中的 bus() 已过时, 且标记为待删除
+@EventBusSubscriber(modid = "visualcrafting", bus = EventBusSubscriber.Bus.GAME)
+                                              ^
+E:\visualcrafting-dev\src\main\java\com\visualcrafting\merge\MergeManagerEvents.java:20: 警告: [removal] EventBusSubscriber 中的 Bus 已过时, 且标记为待删除
+@EventBusSubscriber(modid = "visualcrafting", bus = EventBusSubscriber.Bus.GAME)
+                                                                      ^
+E:\visualcrafting-dev\src\main\java\com\visualcrafting\network\FurnaceExpRegistry.java:17: 警告: [removal] EventBusSubscriber 中的 bus() 已过时, 且标记为待删除
+@EventBusSubscriber(modid = "visualcrafting", bus = EventBusSubscriber.Bus.MOD)
+                                              ^
+E:\visualcrafting-dev\src\main\java\com\visualcrafting\network\FurnaceExpRegistry.java:17: 警告: [removal] EventBusSubscriber 中的 Bus 已过时, 且标记为待删除
+@EventBusSubscriber(modid = "visualcrafting", bus = EventBusSubscriber.Bus.MOD)
+                                                                      ^
+E:\visualcrafting-dev\src\main\java\com\visualcrafting\worldgen\BlockDisableEvents.java:22: 警告: [removal] EventBusSubscriber 中的 bus() 已过时, 且标记为待删除
+@EventBusSubscriber(modid = "visualcrafting", bus = EventBusSubscriber.Bus.GAME)
+                                              ^
+E:\visualcrafting-dev\src\main\java\com\visualcrafting\worldgen\BlockDisableEvents.java:22: 警告: [removal] EventBusSubscriber 中的 Bus 已过时, 且标记为待删除
+@EventBusSubscriber(modid = "visualcrafting", bus = EventBusSubscriber.Bus.GAME)
+                                                                      ^
+注: E:\visualcrafting-dev\src\main\java\com\visualcrafting\screen\VisualCraftingScreen.java使用了未经检查或不安全的操作。
+注: 有关详细信息, 请使用 -Xlint:unchecked 重新编译。
+10 个警告
+
+> Task :processResources
+> Task :classes
+> Task :jarJar NO-SOURCE
+> Task :jar
+
+[Incubating] Problems report is available at: file:///E:/visualcrafting-dev/build/reports/problems/problems-report.html
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 9.0.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/8.13/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 4s
+4 actionable tasks: 4 executed

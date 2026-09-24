@@ -17,6 +17,8 @@ public class DimensionBiomesData {
     public List<String> dimIds = new ArrayList<>();
     public Map<String, List<String>> biomesByDim = new LinkedHashMap<>();
     public List<String> allBiomes = new ArrayList<>();
+    /** 缓存来源实例（Minecraft.getLaunchedVersion()，即版本目录名）；空表示无来源标记（旧缓存） */
+    public String sourceVersion = "";
 
     public DimensionBiomesData() {
     }
@@ -53,6 +55,10 @@ public class DimensionBiomesData {
         }
         root.add("allBiomes", allBiomesArray);
 
+        if (sourceVersion != null && !sourceVersion.isEmpty()) {
+            root.addProperty("sourceVersion", sourceVersion);
+        }
+
         return gson.toJson(root);
     }
 
@@ -76,6 +82,10 @@ public class DimensionBiomesData {
 
             for (JsonElement elem : root.getAsJsonArray("allBiomes")) {
                 data.allBiomes.add(elem.getAsString());
+            }
+
+            if (root.has("sourceVersion") && root.get("sourceVersion").isJsonPrimitive()) {
+                data.sourceVersion = root.get("sourceVersion").getAsString();
             }
 
             return data;
