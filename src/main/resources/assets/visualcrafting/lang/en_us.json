@@ -172,7 +172,7 @@
   "gui.visualcrafting.mode8.status.generate_failed": "Generation failed: %s",
   "gui.visualcrafting.mode8.change": "Apply",
   "gui.visualcrafting.mode8.status.applied": "Modifications applied to item: %s",
-  "gui.visualcrafting.mode8.status.apply_failed": "Apply failed: %s"
+  "gui.visualcrafting.mode8.status.apply_failed": "Apply failed: %s",
   "gui.visualcrafting.mode8.label.no_attributes": "No attributes available",
   "gui.visualcrafting.mode8.label.no_enchantments": "No enchantments available for this item",
   "gui.visualcrafting.mode8.label.mining_tier": "Mining Tier"
