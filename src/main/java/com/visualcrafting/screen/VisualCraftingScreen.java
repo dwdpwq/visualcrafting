@@ -4671,11 +4671,16 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             String durability = this.mode8DurabilityEdit.getValue().trim();
             if (!durability.isEmpty()) {
                 int value = Integer.parseInt(durability);
-                if (value < 0) {
-                    throw new NumberFormatException("durability must be >= 0");
+                if (value < -1) {
+                    throw new NumberFormatException("durability must be >= -1");
                 }
-
-                modified.set(DataComponents.MAX_DAMAGE, value);
+                if (value == -1) {
+                    modified.remove(DataComponents.MAX_DAMAGE);
+                    modified.set(DataComponents.UNBREAKABLE, new Unit());
+                } else {
+                    modified.remove(DataComponents.UNBREAKABLE);
+                    modified.set(DataComponents.MAX_DAMAGE, value);
+                }
                 changed = true;
             }
 
@@ -4776,7 +4781,15 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         sb.append("    event.modify('").append(itemId).append("', item => {\n");
         String durability = this.mode8DurabilityEdit.getValue().trim();
         if (!durability.isEmpty()) {
-            sb.append("        item.maxDamage = ").append(durability).append(";\n");
+            int durabilityValue = Integer.parseInt(durability);
+            if (durabilityValue < -1) {
+                throw new NumberFormatException("durability must be >= -1");
+            }
+            if (durabilityValue == -1) {
+                sb.append("        item.unbreakable();\n");
+            } else {
+                sb.append("        item.maxDamage = ").append(durabilityValue).append(";\n");
+            }
         }
 
         String selectedAttrId = this.mode8AttributeIds.get(Math.clamp(this.mode8AttrDropdown.getSelectedIdx(), 0, this.mode8AttributeIds.size() - 1));
