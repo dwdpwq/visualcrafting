@@ -53,7 +53,7 @@
   "gui.visualcrafting.label.input": "Input",
   "gui.visualcrafting.label.output": "Output",
   "gui.visualcrafting.label.eat_time": "Eat Time",
-  "gui.visualcrafting.label.ignore_saturation": "Ignore Saturation",
+  "gui.visualcrafting.label.ignore_saturation": "Always Edible",
   "gui.visualcrafting.label.all_biomes": "All Biomes",
   "gui.visualcrafting.label.all_dimensions": "All (All Dimensions)",
   "gui.visualcrafting.label.loading": "Loading...",
@@ -169,5 +169,8 @@
   "gui.visualcrafting.mode8.op.mult_total": "Multiply Total (×x)",
   "gui.visualcrafting.mode8.status.need_item": "Place an item into the slot on the left first",
   "gui.visualcrafting.mode8.status.saved": "Enhance script written: %s",
-  "gui.visualcrafting.mode8.status.generate_failed": "Generation failed: %s"
+  "gui.visualcrafting.mode8.status.generate_failed": "Generation failed: %s",
+  "gui.visualcrafting.mode8.change": "Apply",
+  "gui.visualcrafting.mode8.status.applied": "Modifications applied to item: %s",
+  "gui.visualcrafting.mode8.status.apply_failed": "Apply failed: %s"
 }

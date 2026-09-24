@@ -603,7 +603,7 @@ public class RecipeRegistrar {
                     sb.append("    '").append(outputId).append("',  // 输出\n");
                     sb.append("    '").append(inputBStr).append("',  // 输入物品\n");
                     sb.append("    '").append(r.infusionAmount).append("x ").append(inputAStr).append("'  // 化学品 + 数量\n");
-                    sb.append("  );\n");
+                    sb.append("  );//添加灌注合成\"").append(r.output.getHoverName().getString()).append("\"配方\n");
                 }
             }
         }

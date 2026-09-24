@@ -53,7 +53,7 @@
   "gui.visualcrafting.label.input": "输入",
   "gui.visualcrafting.label.output": "输出",
   "gui.visualcrafting.label.eat_time": "食用时间",
-  "gui.visualcrafting.label.ignore_saturation": "忽视饱食度",
+  "gui.visualcrafting.label.ignore_saturation": "随时可食用",
   "gui.visualcrafting.label.all_biomes": "全部群系",
   "gui.visualcrafting.label.loading": "加载中...",
   "gui.visualcrafting.label.recipes_count": "配方 (%s)",
@@ -168,5 +168,8 @@
   "gui.visualcrafting.mode8.op.mult_total": "总值倍率 (×x)",
   "gui.visualcrafting.mode8.status.need_item": "请先将物品放入左侧槽位",
   "gui.visualcrafting.mode8.status.saved": "已写入增强脚本: %s",
-  "gui.visualcrafting.mode8.status.generate_failed": "生成失败: %s"
+  "gui.visualcrafting.mode8.status.generate_failed": "生成失败: %s",
+  "gui.visualcrafting.mode8.change": "变更",
+  "gui.visualcrafting.mode8.status.applied": "已应用属性修改到物品: %s",
+  "gui.visualcrafting.mode8.status.apply_failed": "应用失败: %s"
 }

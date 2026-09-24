@@ -7,6 +7,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.visualcrafting.block.VisualCraftingBlockEntity;
 import com.visualcrafting.recipe.RecipeRegistrar;
+import com.visualcrafting.screen.VisualCraftingMenu;
 import com.visualcrafting.screen.VisualCraftingScreen;
 import com.visualcrafting.worldgen.BlockDisableRegistry;
 import net.minecraft.client.Minecraft;
@@ -31,6 +32,7 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.component.CustomData;
+import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.biome.Biome;
@@ -99,6 +101,8 @@ public class ModMessages {
             ResourceLocation.fromNamespaceAndPath("visualcrafting", "sync_disabled_blocks");
     public static final ResourceLocation REQUEST_DISABLED_BLOCKS_ID =
             ResourceLocation.fromNamespaceAndPath("visualcrafting", "request_disabled_blocks");
+    public static final ResourceLocation APPLY_MODE8_CHANGE_ID =
+            ResourceLocation.fromNamespaceAndPath("visualcrafting", "apply_mode8_change");
 
     private static DimensionBiomesData cachedDimBiomesData;
 
@@ -156,6 +160,8 @@ public class ModMessages {
                 ModMessages::handleRequestDisabledBlocks);
         registrar.playToClient(SyncDisabledBlocksPacket.TYPE, SyncDisabledBlocksPacket.STREAM_CODEC,
                 ModMessages::handleSyncDisabledBlocks);
+        registrar.playToServer(ApplyMode8ChangePacket.TYPE, ApplyMode8ChangePacket.STREAM_CODEC,
+                ModMessages::handleApplyMode8Change);
     }
 
     // ===== Utility =====
@@ -551,6 +557,20 @@ public class ModMessages {
             VisualCraftingBlockEntity vcBe = getAccessibleTable(serverPlayer, packet.pos);
             if (vcBe != null) {
                 vcBe.setMode(packet.mode);
+            }
+        });
+    }
+
+    private static void handleApplyMode8Change(ApplyMode8ChangePacket packet, IPayloadContext ctx) {
+        ctx.enqueueWork(() -> {
+            Player player = ctx.player();
+            if (!(player instanceof ServerPlayer serverPlayer)) return;
+            if (getAccessibleTable(serverPlayer, packet.pos()) == null) return;
+            if (serverPlayer.containerMenu instanceof VisualCraftingMenu vcMenu) {
+                Slot slot = vcMenu.slots.get(81);
+                if (slot != null && !packet.stack().isEmpty()) {
+                    slot.set(packet.stack());
+                }
             }
         });
     }
@@ -1134,6 +1154,24 @@ public class ModMessages {
 
         private static ModeUpdatePacket decode(RegistryFriendlyByteBuf buf) {
             return new ModeUpdatePacket(buf.readBlockPos(), buf.readVarInt());
+        }
+    }
+
+    public record ApplyMode8ChangePacket(BlockPos pos, ItemStack stack) implements CustomPacketPayload {
+        public static final Type<ApplyMode8ChangePacket> TYPE = new Type<>(APPLY_MODE8_CHANGE_ID);
+        public static final StreamCodec<RegistryFriendlyByteBuf, ApplyMode8ChangePacket> STREAM_CODEC =
+                StreamCodec.of(ApplyMode8ChangePacket::encode, ApplyMode8ChangePacket::decode);
+
+        @Override
+        public Type<ApplyMode8ChangePacket> type() { return TYPE; }
+
+        private static void encode(RegistryFriendlyByteBuf buf, ApplyMode8ChangePacket pkt) {
+            buf.writeBlockPos(pkt.pos);
+            ItemStack.STREAM_CODEC.encode(buf, pkt.stack);
+        }
+
+        private static ApplyMode8ChangePacket decode(RegistryFriendlyByteBuf buf) {
+            return new ApplyMode8ChangePacket(buf.readBlockPos(), ItemStack.STREAM_CODEC.decode(buf));
         }
     }
 

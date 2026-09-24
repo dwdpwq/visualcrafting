@@ -42,3 +42,6 @@ Thumbs.db
 
 # Dependency cache
 /file-system.probe
+
+# Build logs
+/build_jar_bg*.log
