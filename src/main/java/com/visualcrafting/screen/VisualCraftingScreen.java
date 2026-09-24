@@ -353,7 +353,6 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     DropdownWidget mode8OpDropdown;
     DropdownWidget mode8SlotDropdown;
     DropdownWidget mode8EnchantDropdown;
-    DropdownWidget mode8MiningTierDropdown;
     EditBox mode8AttrValueEdit;
     EditBox mode8EnchantLevelEdit;
     EditBox mode8DurabilityEdit;
@@ -4345,6 +4344,10 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         int controlX = this.leftPos + 100;
         this.mode8AttrDropdown = new DropdownWidget(controlX, this.topPos + MODE8_SCROLL_TOP, 108);
         this.mode8AttrDropdown.setOptions(this.mode8AttrLabels(), 0);
+        this.mode8AttrDropdown.setOnSelect(index -> {
+            Mode8RegistryEntry entry = this.mode8SelectedAttribute();
+            this.mode8MiningTierChanged = this.isMode8MiningTierEntry(entry);
+        });
         this.addWidget(this.mode8AttrDropdown);
         this.mode8AttrValueEdit = new EditBox(this.font, controlX, this.topPos + MODE8_SCROLL_TOP + MODE8_ROW_H, 54, 16, Component.empty());
         this.mode8AttrValueEdit.setMaxLength(16);
@@ -4363,11 +4366,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         this.mode8EnchantLevelEdit.setMaxLength(4);
         this.mode8EnchantLevelEdit.setFilter(s -> s.matches("[0-9]*"));
         this.addWidget(this.mode8EnchantLevelEdit);
-        this.mode8MiningTierDropdown = new DropdownWidget(controlX, this.topPos + MODE8_SCROLL_TOP + MODE8_ROW_H * 5, 108);
-        this.mode8MiningTierDropdown.setOptions(Arrays.asList(MODE8_MINING_TIER_LABELS), 0);
-        this.mode8MiningTierDropdown.setOnSelect(index -> this.mode8MiningTierChanged = true);
-        this.addWidget(this.mode8MiningTierDropdown);
-        this.mode8DurabilityEdit = new EditBox(this.font, controlX, this.topPos + MODE8_SCROLL_TOP + MODE8_ROW_H * 6, 108, 16, Component.empty());
+        this.mode8DurabilityEdit = new EditBox(this.font, controlX, this.topPos + MODE8_SCROLL_TOP + MODE8_ROW_H * 5, 108, 16, Component.empty());
         this.mode8DurabilityEdit.setMaxLength(10);
         this.mode8DurabilityEdit.setFilter(s -> s.matches("-?[0-9]*"));
         this.addWidget(this.mode8DurabilityEdit);
@@ -4427,6 +4426,15 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         }
         entries.sort((a, b) -> a.id().toString().compareTo(b.id().toString()));
         return entries;
+        ItemStack stack = this.menu.slots.get(81).getItem();
+        if (stack.get(DataComponents.TOOL) != null) {
+            for (int i = 0; i < MODE8_MINING_TIERS.length; i++) {
+                entries.add(new Mode8RegistryEntry(
+                        ResourceLocation.fromNamespaceAndPath("visualcrafting", "mining_tier_" + MODE8_MINING_TIERS[i]),
+                        "挖掘等级：" + MODE8_MINING_TIER_LABELS[i], 1));
+            }
+        }
+
     }
 
     private List<Mode8RegistryEntry> mode8EnchantmentEntries(ItemStack stack) {
@@ -4509,6 +4517,21 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         return index >= 0 && index < entries.size() ? entries.get(index) : null;
     }
 
+    private boolean isMode8MiningTierEntry(Mode8RegistryEntry entry) {
+        return entry != null && "visualcrafting".equals(entry.id().getNamespace())
+                && entry.id().getPath().startsWith("mining_tier_");
+    }
+
+    private int mode8SelectedMiningTier() {
+        Mode8RegistryEntry entry = this.mode8SelectedAttribute();
+        if (!this.isMode8MiningTierEntry(entry)) return 0;
+        String tierName = entry.id().getPath().substring("mining_tier_".length());
+        for (int i = 0; i < MODE8_MINING_TIERS.length; i++) {
+            if (MODE8_MINING_TIERS[i].equals(tierName)) return i;
+        }
+        return 0;
+    }
+
     private int mode8DetectMiningTier(ItemStack stack) {
         Tool tool = stack.get(DataComponents.TOOL);
         if (tool == null) return 0;
@@ -4524,7 +4547,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     }
 
     int mode8MaxScroll() {
-        int contentHeight = MODE8_ROW_H * 7;
+        int contentHeight = MODE8_ROW_H * 6;
         int visibleHeight = this.imageHeight - 83 - MODE8_SCROLL_TOP;
         if (visibleHeight >= contentHeight) {
             return 0;
@@ -4546,8 +4569,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         this.mode8SlotDropdown.setPosition(this.leftPos + 100, y0 + MODE8_ROW_H * 2);
         this.mode8EnchantDropdown.setPosition(this.leftPos + 100, y0 + MODE8_ROW_H * 3);
         this.mode8EnchantLevelEdit.setPosition(this.leftPos + 100, y0 + MODE8_ROW_H * 4);
-        this.mode8MiningTierDropdown.setPosition(this.leftPos + 100, y0 + MODE8_ROW_H * 5);
-        this.mode8DurabilityEdit.setPosition(this.leftPos + 100, y0 + MODE8_ROW_H * 6);
+        this.mode8DurabilityEdit.setPosition(this.leftPos + 100, y0 + MODE8_ROW_H * 5);
     }
 
     private void renderMode8Widgets(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTicks) {
@@ -4565,7 +4587,6 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         this.mode8SlotDropdown.render(guiGraphics, mouseX, mouseY, partialTicks);
         this.mode8EnchantDropdown.render(guiGraphics, mouseX, mouseY, partialTicks);
         this.mode8EnchantLevelEdit.render(guiGraphics, mouseX, mouseY, partialTicks);
-        this.mode8MiningTierDropdown.render(guiGraphics, mouseX, mouseY, partialTicks);
         this.mode8DurabilityEdit.render(guiGraphics, mouseX, mouseY, partialTicks);
         guiGraphics.pose().popPose();
         RenderSystem.enableDepthTest();
@@ -4583,14 +4604,12 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         this.drawWrapped(guiGraphics, this.font, Component.translatable("gui.visualcrafting.mode8.label.slot"), controlX - 5 - this.font.width(Component.translatable("gui.visualcrafting.mode8.label.slot")), y0 + MODE8_ROW_H * 2 + 2, 60, 4210752);
         this.drawWrapped(guiGraphics, this.font, Component.translatable("gui.visualcrafting.mode8.label.enchant"), controlX - 5 - this.font.width(Component.translatable("gui.visualcrafting.mode8.label.enchant")), y0 + MODE8_ROW_H * 3 + 2, 60, 4210752);
         this.drawWrapped(guiGraphics, this.font, Component.translatable("gui.visualcrafting.mode8.label.level"), controlX - 5 - this.font.width(Component.translatable("gui.visualcrafting.mode8.label.level")), y0 + MODE8_ROW_H * 4 + 2, 60, 4210752);
-        this.drawWrapped(guiGraphics, this.font, Component.translatable("gui.visualcrafting.mode8.label.mining_tier"), controlX - 5 - this.font.width(Component.translatable("gui.visualcrafting.mode8.label.mining_tier")), y0 + MODE8_ROW_H * 5 + 2, 60, 4210752);
-        this.drawWrapped(guiGraphics, this.font, Component.translatable("gui.visualcrafting.mode8.label.durability"), controlX - 5 - this.font.width(Component.translatable("gui.visualcrafting.mode8.label.durability")), y0 + MODE8_ROW_H * 6 + 2, 60, 4210752);
+        this.drawWrapped(guiGraphics, this.font, Component.translatable("gui.visualcrafting.mode8.label.durability"), controlX - 5 - this.font.width(Component.translatable("gui.visualcrafting.mode8.label.durability")), y0 + MODE8_ROW_H * 5 + 2, 60, 4210752);
         ItemStack stack = this.menu.slots.get(81).getItem();
         String currentMode8ItemId = stack.isEmpty() ? "<empty>" : BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
         if (!currentMode8ItemId.equals(this.mode8LastItemId)) {
             this.mode8LastItemId = currentMode8ItemId;
             this.mode8MiningTierChanged = false;
-            this.mode8MiningTierDropdown.setSelected(this.mode8DetectMiningTier(stack));
             this.mode8DurabilityEdit.setValue(String.valueOf(stack.getOrDefault(DataComponents.MAX_DAMAGE, 0)));
         }
         this.refreshMode8RegistryOptions(false);
@@ -4711,7 +4730,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             if (this.mode8MiningTierChanged) {
                 Tool currentTool = modified.get(DataComponents.TOOL);
                 if (currentTool == null) throw new IllegalArgumentException("item has no tool component");
-                int tier = Math.clamp(this.mode8MiningTierDropdown.getSelectedIdx(), 0, MODE8_MINING_TIERS.length - 1);
+                int tier = this.mode8SelectedMiningTier();
                 TagKey<net.minecraft.world.level.block.Block> incorrectTag = TagKey.create(Registries.BLOCK, ResourceLocation.fromNamespaceAndPath("minecraft", "incorrect_for_" + MODE8_MINING_TIERS[tier] + "_tool"));
                 TagKey<net.minecraft.world.level.block.Block> pickaxeTag = TagKey.create(Registries.BLOCK, ResourceLocation.fromNamespaceAndPath("minecraft", "mineable/pickaxe"));
                 List<Tool.Rule> rules = new ArrayList<>();
@@ -4830,7 +4849,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         }
 
         if (this.mode8MiningTierChanged) {
-            int miningTier = Math.clamp(this.mode8MiningTierDropdown.getSelectedIdx(), 0, MODE8_MINING_TIERS.length - 1);
+            int miningTier = this.mode8SelectedMiningTier();
             sb.append("        item.tier = tier => { tier.level = ").append(miningTier).append("; };\n");
         }
 
