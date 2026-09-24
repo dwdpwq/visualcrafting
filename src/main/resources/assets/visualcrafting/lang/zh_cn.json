@@ -174,5 +174,6 @@
   "gui.visualcrafting.mode8.status.apply_failed": "应用失败: %s",
   "gui.visualcrafting.mode8.label.no_attributes": "没有可用属性",
   "gui.visualcrafting.mode8.label.no_enchantments": "没有适用于当前物品的附魔",
-  "gui.visualcrafting.mode8.label.mining_tier": "挖掘等级"
+  "gui.visualcrafting.mode8.label.mining_tier": "挖掘等级" ,
+  "gui.visualcrafting.mode8.label.tool_tier": "工具等级"
 }
