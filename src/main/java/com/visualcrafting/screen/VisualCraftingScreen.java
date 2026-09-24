@@ -4465,7 +4465,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
 
         ItemStack stack = this.menu.slots.get(81).getItem();
         String itemId = stack.isEmpty() ? "<empty>" : BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
-        int attrCount = (int) BuiltInRegistries.ATTRIBUTE.listElements().count();
+        int attrCount = (int) BuiltInRegistries.ATTRIBUTE.stream().count();
         int enchantCount = this.minecraft != null && this.minecraft.level != null
                 ? this.minecraft.level.registryAccess().lookup(Registries.ENCHANTMENT).map(lookup -> (int) lookup.listElements().count()).orElse(0)
                 : 0;
