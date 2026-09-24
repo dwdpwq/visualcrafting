@@ -343,6 +343,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     private static final String[] MODE8_MINING_TIERS = new String[]{"wood", "stone", "iron", "diamond", "netherite"};
     private static final String[] MODE8_MINING_TIER_LABELS = new String[]{"木质", "石质", "铁质", "钻石", "下界合金"};
     private boolean mode8MiningTierChanged = false;
+    private String mode8LastItemId = "";
     static final int MODE8_SCROLL_TOP = 33;
     static final int MODE8_ROW_H = 16;
     int mode8ScrollOffset = 0;
@@ -4549,6 +4550,13 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         this.drawWrapped(guiGraphics, this.font, Component.translatable("gui.visualcrafting.mode8.label.mining_tier"), controlX - 5 - this.font.width(Component.translatable("gui.visualcrafting.mode8.label.mining_tier")), y0 + MODE8_ROW_H * 5 + 2, 60, 4210752);
         this.drawWrapped(guiGraphics, this.font, Component.translatable("gui.visualcrafting.mode8.label.durability"), controlX - 5 - this.font.width(Component.translatable("gui.visualcrafting.mode8.label.durability")), y0 + MODE8_ROW_H * 6 + 2, 60, 4210752);
         ItemStack stack = this.menu.slots.get(81).getItem();
+        String currentMode8ItemId = stack.isEmpty() ? "<empty>" : BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+        if (!currentMode8ItemId.equals(this.mode8LastItemId)) {
+            this.mode8LastItemId = currentMode8ItemId;
+            this.mode8MiningTierChanged = false;
+            this.mode8MiningTierDropdown.setSelected(this.mode8DetectMiningTier(stack));
+            this.mode8DurabilityEdit.setValue(String.valueOf(stack.getOrDefault(DataComponents.MAX_DAMAGE, 0)));
+        }
         this.refreshMode8RegistryOptions(false);
         this.mode8DetectedType = this.mode8DetectType(stack);
         this.renderSlotOutline(guiGraphics, 81);
