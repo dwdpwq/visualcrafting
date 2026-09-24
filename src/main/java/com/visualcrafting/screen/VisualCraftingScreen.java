@@ -2356,75 +2356,86 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     }
 
     protected void renderBg(GuiGraphics guiGraphics, float partialTicks, int mouseX, int mouseY) {
-        RenderSystem.setShader(GameRenderer::getPositionTexShader);
-        RenderSystem.setShaderColor(1.0f, 1.0f, 1.0f, 1.0f);
-        guiGraphics.fill(this.leftPos, this.topPos, this.leftPos + this.imageWidth, this.topPos + this.imageHeight, -1072689136);
+        // 1.7.11 unified visual shell:
+        // - neutral canvas instead of the old texture-heavy background
+        // - consistent card/panel language for every tab
+        // - compact tab strip and separate inventory footer
+        // - mode-specific renderers remain responsible for their actual controls/content
+        final int x = this.leftPos;
+        final int y = this.topPos;
+        final int w = this.imageWidth;
+        final int h = this.imageHeight;
+        final int accent = 0xFF5B8DEF;
+        final int panel = 0xF51E2229;
+        final int panelAlt = 0xF8171A20;
+        final int border = 0xFF3B424D;
+        final int borderSoft = 0xFF2D333C;
+
+        guiGraphics.fill(x - 2, y - 2, x + w + 2, y + h + 2, 0xC0101216);
+        guiGraphics.fill(x, y, x + w, y + h, panel);
+
+        // Main content card. Keep the inventory area visually separate.
+        int contentBottom = y + h - 86;
+        guiGraphics.fill(x + 4, y + 4, x + w - 4, contentBottom, panelAlt);
+        guiGraphics.renderOutline(x + 4, y + 4, w - 8, contentBottom - y - 4, borderSoft);
+
+        // Header/tab strip.
         int tabWidth = 24;
         int tabHeight = 24;
         int tabGap = 3;
-        int tabStartX = this.leftPos + 8;
-        int tabStartY = this.topPos - 26;
-        int craftIconX = tabStartX + 4;
-        int craftIconY = tabStartY + 4;
-        guiGraphics.blit(TAB_CRAFT, craftIconX, craftIconY, 0.0f, 0.0f, 16, 16, 16, 16);
-        if (this.mode == 0) {
-            guiGraphics.renderOutline(tabStartX, tabStartY, tabWidth, tabHeight, -256);
-        }
+        int tabStartX = x + 8;
+        int tabStartY = y - 26;
+        guiGraphics.fill(tabStartX - 4, tabStartY - 4,
+                tabStartX + (tabWidth + tabGap) * 7 - tabGap + 4,
+                tabStartY + tabHeight + 4, 0xE8181C23);
+        guiGraphics.renderOutline(tabStartX - 4, tabStartY - 4,
+                (tabWidth + tabGap) * 7 - tabGap + 8, tabHeight + 8, border);
 
-        int infuseIconX = tabStartX + tabWidth + tabGap + 4;
-        guiGraphics.blit(TAB_INFUSE, infuseIconX, craftIconY, 0.0f, 0.0f, 16, 16, 16, 16);
-        if (this.mode == 1) {
-            guiGraphics.renderOutline(tabStartX + tabWidth + tabGap, tabStartY, tabWidth, tabHeight, -256);
-        }
+        this.renderVisualTab(guiGraphics, TAB_CRAFT, ICON_CRAFT, 0, tabStartX, tabStartY, tabWidth, tabHeight, tabGap, accent);
+        this.renderVisualTab(guiGraphics, TAB_INFUSE, ICON_INFUSE, 1, tabStartX, tabStartY, tabWidth, tabHeight, tabGap, accent);
+        this.renderVisualTab(guiGraphics, TAB_ORE, null, 2, tabStartX, tabStartY, tabWidth, tabHeight, tabGap, accent);
+        this.renderVisualTab(guiGraphics, TAB_FOOD, null, 5, tabStartX, tabStartY, tabWidth, tabHeight, tabGap, accent);
+        this.renderVisualTab(guiGraphics, null, ICON_NAME, 6, tabStartX, tabStartY, tabWidth, tabHeight, tabGap, accent);
+        this.renderVisualTab(guiGraphics, null, ICON_CREATE, 7, tabStartX, tabStartY, tabWidth, tabHeight, tabGap, accent);
+        this.renderVisualTab(guiGraphics, null, ICON_ENHANCE, 8, tabStartX, tabStartY, tabWidth, tabHeight, tabGap, accent);
 
-        int oreIconX = tabStartX + (tabWidth + tabGap) * 2 + 4;
-        guiGraphics.blit(TAB_ORE, oreIconX, craftIconY, 0.0f, 0.0f, 16, 16, 16, 16);
-        if (this.mode == 2) {
-            guiGraphics.renderOutline(tabStartX + (tabWidth + tabGap) * 2, tabStartY, tabWidth, tabHeight, -256);
-        }
+        // Small mode marker in the content header. It intentionally does not depend
+        // on a translation key so this visual layer cannot break localization.
+        String modeText = switch (this.mode) {
+            case 0 -> "CRAFT";
+            case 1 -> "INFUSE";
+            case 2 -> "WORLD";
+            case 5 -> "FOOD";
+            case 6 -> "NAME";
+            case 7 -> "CREATE";
+            case 8 -> "ENHANCE";
+            default -> "VISUAL";
+        };
+        guiGraphics.drawString(this.font, modeText, x + 10, y + 7, 0xFFB8C2D1, false);
+        guiGraphics.fill(x + 10, y + 18, x + 10 + this.font.width(modeText), y + 19, accent);
 
-        int tabFoodIconX = tabStartX + (tabWidth + tabGap) * 3 + 4;
-        guiGraphics.blit(TAB_FOOD, tabFoodIconX, craftIconY, 0.0f, 0.0f, 16, 16, 16, 16);
-                if (this.mode == 5) {
-            guiGraphics.renderOutline(tabStartX + (tabWidth + tabGap) * 3, tabStartY, tabWidth, tabHeight, -256);
-        }
+        // Inventory footer card.
+        int invTop = y + h - 82;
+        guiGraphics.fill(x + 4, invTop - 3, x + w - 4, y + h - 4, 0xF51A1E25);
+        guiGraphics.renderOutline(x + 4, invTop - 3, w - 8, 78, border);
 
-        int tabNameIconX = tabStartX + (tabWidth + tabGap) * 4 + 4;
-        guiGraphics.renderItem(ICON_NAME, tabNameIconX, craftIconY);
-        if (this.mode == 6) {
-            guiGraphics.renderOutline(tabStartX + (tabWidth + tabGap) * 4, tabStartY, tabWidth, tabHeight, -256);
-        }
-
-        int tabCreateIconX = tabStartX + (tabWidth + tabGap) * 5 + 4;
-        guiGraphics.renderItem(ICON_CREATE, tabCreateIconX, craftIconY);
-        if (this.mode == 7) {
-            guiGraphics.renderOutline(tabStartX + (tabWidth + tabGap) * 5, tabStartY, tabWidth, tabHeight, -256);
-        }
-
-        int tabEnhanceIconX = tabStartX + (tabWidth + tabGap) * 6 + 4;
-        guiGraphics.renderItem(ICON_ENHANCE, tabEnhanceIconX, craftIconY);
-        if (this.mode == 8) {
-            guiGraphics.renderOutline(tabStartX + (tabWidth + tabGap) * 6, tabStartY, tabWidth, tabHeight, -256);
-        }
-
+        // Existing mode-specific content and slot outlines are deliberately preserved.
         if (this.mode == 0) {
             int gridSize = this.getGridSize();
             int gridX = this.slotAbsX(0) + this.invLineOffsetX;
             int gridY = this.slotAbsY(0) + this.invLineOffsetY;
-            guiGraphics.renderOutline(gridX, gridY, gridSize * 18, gridSize * 18, -1);
+            guiGraphics.renderOutline(gridX, gridY, gridSize * 18, gridSize * 18, 0xFF707A88);
             for (int i = 0; i < gridSize; ++i) {
                 for (int j = 0; j < gridSize; ++j) {
                     this.renderSlotOutline(guiGraphics, i * gridSize + j);
                 }
-
             }
-
             this.renderSlotOutline(guiGraphics, 81);
             this.renderCraftList(guiGraphics, mouseX, mouseY);
         } else if (this.mode == 1) {
             this.renderInfusingExtras(guiGraphics);
             this.renderInfuseList(guiGraphics, mouseX, mouseY);
-                } else if (this.mode == 5) {
+        } else if (this.mode == 5) {
             this.renderMode5Extras(guiGraphics, mouseX, mouseY);
         } else if (this.mode == 6) {
             this.renderNameExtras(guiGraphics, mouseX, mouseY);
@@ -2439,8 +2450,33 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         for (int slotIdx = 82; slotIdx < this.menu.slots.size(); ++slotIdx) {
             this.renderSlotOutline(guiGraphics, slotIdx);
         }
-
     }
+
+    private void renderVisualTab(GuiGraphics guiGraphics, ResourceLocation texture, ItemStack item,
+                                 int tabMode, int tabStartX, int tabStartY, int tabWidth,
+                                 int tabHeight, int tabGap, int accent) {
+        int tx = tabStartX + (tabWidth + tabGap) * (tabMode == 0 ? 0 :
+                tabMode == 1 ? 1 :
+                tabMode == 2 ? 2 :
+                tabMode == 5 ? 3 :
+                tabMode == 6 ? 4 :
+                tabMode == 7 ? 5 : 6);
+        boolean selected = this.mode == tabMode;
+        guiGraphics.fill(tx, tabStartY, tx + tabWidth, tabStartY + tabHeight,
+                selected ? 0xFF2D3A52 : 0xFF20252D);
+        guiGraphics.renderOutline(tx, tabStartY, tabWidth, tabHeight,
+                selected ? accent : 0xFF3B424D);
+        if (texture != null) {
+            guiGraphics.blit(texture, tx + 4, tabStartY + 4, 0.0f, 0.0f, 16, 16, 16, 16);
+        } else if (item != null) {
+            guiGraphics.renderItem(item, tx + 4, tabStartY + 4);
+        }
+        if (selected) {
+            guiGraphics.fill(tx + 4, tabStartY + tabHeight - 2,
+                    tx + tabWidth - 4, tabStartY + tabHeight - 1, accent);
+        }
+    }
+
 
     private void renderCraftList(GuiGraphics guiGraphics, int mouseX, int mouseY) {
         int listX = this.leftPos + this.imageWidth - 88 + this.recipesOffsetX;
