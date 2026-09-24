@@ -652,7 +652,7 @@ public class ModMessages {
     private static boolean isValidMode8Attributes(ItemStack current, ItemAttributeModifiers requested) {
         ItemAttributeModifiers original =
                 current.getOrDefault(DataComponents.ATTRIBUTE_MODIFIERS, ItemAttributeModifiers.EMPTY);
-        Map<UUID, ItemAttributeModifiers.Entry> originalById = new HashMap<>();
+        Map<ResourceLocation, ItemAttributeModifiers.Entry> originalById = new HashMap<>();
         for (ItemAttributeModifiers.Entry entry : original.modifiers()) {
             originalById.put(entry.modifier().id(), entry);
         }
