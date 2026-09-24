@@ -4528,8 +4528,6 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             if (this.mode8EnchantDropdown != null) {
                 this.mode8EnchantDropdown.setOptions(this.mode8EnchantLabels(), 0);
             }
-            if (this.mode8ToolTierDropdown != null) {
-                    }
         }
         int gl = this.leftPos;
         int gt = this.topPos;
@@ -4781,11 +4779,12 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             sb.append("        item.maxDamage = ").append(durability).append(";\n");
         }
 
-        if (this.mode8ToolTierDropdown != null && !this.mode8ToolTierDropdown.getMessage().getString().isEmpty()) {
+        String selectedAttrId = this.mode8AttributeIds.get(Math.clamp(this.mode8AttrDropdown.getSelectedIdx(), 0, this.mode8AttributeIds.size() - 1));
+        if (selectedAttrId.startsWith(MODE8_TOOL_TIER_PREFIX)) {
             ItemStack currentStack = this.menu.slots.get(81).getItem();
             if (currentStack.get(DataComponents.TOOL) != null) {
-                int tierIdx = Math.clamp(this.mode8ToolTierDropdown.getSelectedIdx(), 0, MODE8_TOOL_TIER_IDS.length - 1);
-                int level = switch (MODE8_TOOL_TIER_IDS[tierIdx]) {
+                String tier = selectedAttrId.substring(MODE8_TOOL_TIER_PREFIX.length());
+                int level = switch (tier) {
                     case "stone" -> 1;
                     case "iron" -> 2;
                     case "diamond" -> 3;
