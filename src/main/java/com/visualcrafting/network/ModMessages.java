@@ -32,6 +32,9 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.component.CustomData;
+import net.minecraft.world.item.component.ItemAttributeModifiers;
+import net.minecraft.world.item.component.ItemEnchantments;
+import net.minecraft.world.item.enchantment.Enchantment;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
@@ -561,18 +564,114 @@ public class ModMessages {
         });
     }
 
+    /**
+     * Mode 8 is a client-side editor, but the final ItemStack is server-authoritative.
+     * Only the components exposed by Mode 8 are accepted from the client.
+     */
     private static void handleApplyMode8Change(ApplyMode8ChangePacket packet, IPayloadContext ctx) {
         ctx.enqueueWork(() -> {
             Player player = ctx.player();
             if (!(player instanceof ServerPlayer serverPlayer)) return;
-            if (getAccessibleTable(serverPlayer, packet.pos()) == null) return;
-            if (serverPlayer.containerMenu instanceof VisualCraftingMenu vcMenu) {
-                Slot slot = vcMenu.slots.get(81);
-                if (slot != null && !packet.stack().isEmpty()) {
-                    slot.set(packet.stack());
-                }
+
+            VisualCraftingBlockEntity table = getAccessibleTable(serverPlayer, packet.pos());
+            if (table == null) return;
+            if (!(serverPlayer.containerMenu instanceof VisualCraftingMenu vcMenu)
+                    || !vcMenu.blockPos.equals(packet.pos())) return;
+
+            Slot slot = vcMenu.slots.get(VisualCraftingMenu.OUTPUT_SLOT);
+            ItemStack current = slot.getItem();
+            ItemStack requested = packet.stack();
+
+            if (slot == null || current.isEmpty() || requested.isEmpty()) return;
+            if (current.getItem() != requested.getItem() || current.getCount() != requested.getCount()) {
+                System.err.println("[VisualCrafting] Rejected Mode 8 packet: item identity/count changed");
+                return;
             }
+
+            ItemStack sanitized = current.copy();
+
+            if (requested.has(DataComponents.MAX_DAMAGE)) {
+                int maxDamage = requested.getOrDefault(DataComponents.MAX_DAMAGE, 0);
+                if (maxDamage < 0) return;
+                sanitized.set(DataComponents.MAX_DAMAGE, maxDamage);
+            } else {
+                sanitized.remove(DataComponents.MAX_DAMAGE);
+            }
+
+            if (requested.has(DataComponents.ATTRIBUTE_MODIFIERS)) {
+                ItemAttributeModifiers requestedMods =
+                        requested.getOrDefault(DataComponents.ATTRIBUTE_MODIFIERS, ItemAttributeModifiers.EMPTY);
+                if (!isValidMode8Attributes(current, requestedMods)) return;
+                sanitized.set(DataComponents.ATTRIBUTE_MODIFIERS, requestedMods);
+            } else {
+                sanitized.remove(DataComponents.ATTRIBUTE_MODIFIERS);
+            }
+
+            if (requested.has(DataComponents.ENCHANTMENTS)) {
+                ItemEnchantments requestedEnchants =
+                        requested.getOrDefault(DataComponents.ENCHANTMENTS, ItemEnchantments.EMPTY);
+                if (!isValidMode8Enchantments(serverPlayer, current, requestedEnchants)) return;
+                sanitized.set(DataComponents.ENCHANTMENTS, requestedEnchants);
+            } else {
+                sanitized.remove(DataComponents.ENCHANTMENTS);
+            }
+
+            slot.set(sanitized);
+            slot.setChanged();
+            vcMenu.broadcastChanges();
         });
+    }
+
+    private static boolean isValidMode8Attributes(ItemStack current, ItemAttributeModifiers requested) {
+        ItemAttributeModifiers original =
+                current.getOrDefault(DataComponents.ATTRIBUTE_MODIFIERS, ItemAttributeModifiers.EMPTY);
+        Map<UUID, ItemAttributeModifiers.Entry> originalById = new HashMap<>();
+        for (ItemAttributeModifiers.Entry entry : original.modifiers()) {
+            originalById.put(entry.modifier().id(), entry);
+        }
+
+        for (ItemAttributeModifiers.Entry entry : requested.modifiers()) {
+            ResourceLocation id = entry.modifier().id();
+            ItemAttributeModifiers.Entry old = originalById.get(id);
+
+            if (old != null && !id.getNamespace().equals("visualcrafting")
+                    && !sameAttributeEntry(old, entry)) return false;
+            if (old == null && !id.getNamespace().equals("visualcrafting")) return false;
+
+            double amount = entry.modifier().amount();
+            if (!Double.isFinite(amount) || Math.abs(amount) > 1.0E9) return false;
+        }
+        return true;
+    }
+
+    private static boolean sameAttributeEntry(ItemAttributeModifiers.Entry a, ItemAttributeModifiers.Entry b) {
+        return a.attribute().equals(b.attribute())
+                && a.modifier().equals(b.modifier())
+                && a.slot().equals(b.slot());
+    }
+
+    private static boolean isValidMode8Enchantments(ServerPlayer player, ItemStack current,
+                                                     ItemEnchantments requested) {
+        Optional<Registry<Enchantment>> registry =
+                player.level().registryAccess().registry(Registries.ENCHANTMENT);
+        if (registry.isEmpty()) return false;
+
+        ItemEnchantments original =
+                current.getOrDefault(DataComponents.ENCHANTMENTS, ItemEnchantments.EMPTY);
+
+        for (Holder<Enchantment> holder : requested.keySet()) {
+            int level = requested.getLevel(holder);
+            if (level <= 0 || level > holder.value().getMaxLevel()) return false;
+
+            int oldLevel = original.getLevel(holder);
+            if (oldLevel == 0 && !current.supportsEnchantment(holder)) return false;
+        }
+
+        // Mode 8 must not remove existing enchantments as a side effect.
+        for (Holder<Enchantment> holder : original.keySet()) {
+            if (original.getLevel(holder) > 0 && requested.getLevel(holder) <= 0) return false;
+        }
+        return true;
     }
 
     // ===== Infusing recipe handlers =====
