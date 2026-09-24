@@ -33,6 +33,7 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.component.CustomData;
 import net.minecraft.world.item.component.ItemAttributeModifiers;
+import net.minecraft.world.item.component.Tool;
 import net.minecraft.world.item.enchantment.ItemEnchantments;
 import net.minecraft.world.item.enchantment.Enchantment;
 import net.minecraft.world.inventory.Slot;
@@ -592,8 +593,14 @@ public class ModMessages {
 
             if (requested.has(DataComponents.MAX_DAMAGE)) {
                 int maxDamage = requested.getOrDefault(DataComponents.MAX_DAMAGE, 0);
-                if (maxDamage < 0) return;
+                if (maxDamage < -1) return;
                 sanitized.set(DataComponents.MAX_DAMAGE, maxDamage);
+            }
+
+            if (requested.has(DataComponents.TOOL)) {
+                Tool requestedTool = requested.get(DataComponents.TOOL);
+                if (!isValidMode8MiningTool(current, requestedTool)) return;
+                sanitized.set(DataComponents.TOOL, requestedTool);
             }
 
             if (requested.has(DataComponents.ATTRIBUTE_MODIFIERS)) {
@@ -614,6 +621,32 @@ public class ModMessages {
             slot.setChanged();
             vcMenu.broadcastChanges();
         });
+    }
+
+    private static boolean isValidMode8MiningTool(ItemStack current, Tool requested) {
+        Tool original = current.get(DataComponents.TOOL);
+        if (original == null || requested == null) return false;
+        if (!Float.isFinite(requested.defaultMiningSpeed()) || requested.defaultMiningSpeed() < 0.0F || requested.defaultMiningSpeed() > 1000.0F) return false;
+        if (requested.damagePerBlock() != original.damagePerBlock()) return false;
+        if (requested.rules().size() != 2) return false;
+        boolean hasPickaxeRule = false;
+        boolean hasTierRule = false;
+        for (Tool.Rule rule : requested.rules()) {
+            Optional<TagKey<Block>> key = rule.blocks().unwrapKey();
+            if (key.isEmpty() || !key.get().location().getNamespace().equals("minecraft")) return false;
+            String path = key.get().location().getPath();
+            if (path.equals("mineable/pickaxe")) {
+                if (!rule.correctForDrops().orElse(false)) return false;
+                if (rule.speed().isEmpty() || !Float.isFinite(rule.speed().get()) || Math.abs(rule.speed().get() - requested.defaultMiningSpeed()) > 0.0001F) return false;
+                hasPickaxeRule = true;
+            } else if (path.startsWith("incorrect_for_") && path.endsWith("_tool")) {
+                String tier = path.substring("incorrect_for_".length(), path.length() - "_tool".length());
+                if (!Set.of("wood", "stone", "iron", "gold", "diamond", "netherite").contains(tier)) return false;
+                if (rule.correctForDrops().orElse(true) || rule.speed().isPresent()) return false;
+                hasTierRule = true;
+            } else return false;
+        }
+        return hasPickaxeRule && hasTierRule;
     }
 
     private static boolean isValidMode8Attributes(ItemStack current, ItemAttributeModifiers requested) {
