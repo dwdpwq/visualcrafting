@@ -1,5 +1,16 @@
 package com.visualcrafting.screen;
 
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.function.IntConsumer;
+
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.AbstractWidget;
+import net.minecraft.client.gui.narration.NarrationElementOutput;
+import net.minecraft.network.chat.Component;
+
 public class DropdownWidget
         extends AbstractWidget {
         private final VisualCraftingScreen owner;
@@ -111,8 +122,8 @@ public class DropdownWidget
         dropdownY = this.getY() - dropdownHeight;
         }
 
-        if (dropdownY < VisualCraftingScreen.this.topPos) {
-        dropdownY = VisualCraftingScreen.this.topPos;
+        if (dropdownY < this.owner.topPos) {
+        dropdownY = this.owner.topPos;
         }
 
         return dropdownY;
@@ -242,8 +253,8 @@ public class DropdownWidget
         }
 
         String checkmark = isSelected ? "☑" : "☐";
-        graphics.drawString(VisualCraftingScreen.this.font, checkmark, this.getX() + 4, rowY + 2, isSelected ? 0x55FF55 : 0x808080, false);
-        graphics.drawString(VisualCraftingScreen.this.font, this.options.get(optionIdx), this.getX() + 20, rowY + 2, 0xFFFFFF, false);
+        graphics.drawString(this.owner.font, checkmark, this.getX() + 4, rowY + 2, isSelected ? 0x55FF55 : 0x808080, false);
+        graphics.drawString(this.owner.font, this.options.get(optionIdx), this.getX() + 20, rowY + 2, 0xFFFFFF, false);
         continue;
         }
 
@@ -251,14 +262,14 @@ public class DropdownWidget
         graphics.fill(this.getX() + 1, rowY, this.getX() + this.width - 1, rowY + ROW_HEIGHT, 0x40FFFFFF);
         }
 
-        graphics.drawString(VisualCraftingScreen.this.font, this.options.get(optionIdx), this.getX() + 4, rowY + 2, 0xFFFFFF, false);
+        graphics.drawString(this.owner.font, this.options.get(optionIdx), this.getX() + 4, rowY + 2, 0xFFFFFF, false);
         }
 
         if (this.options.size() > visibleRows) {
         int totalPages = Math.max(0, this.options.size() - visibleRows);
         String scrollText = (this.scrollOffset + 1) + "/" + (totalPages + 1);
-        int scrollTextWidth = VisualCraftingScreen.this.font.width(scrollText);
-        graphics.drawString(VisualCraftingScreen.this.font, scrollText,
+        int scrollTextWidth = this.owner.font.width(scrollText);
+        graphics.drawString(this.owner.font, scrollText,
                 this.getX() + this.width - scrollTextWidth - 4, dropdownY + dropdownHeight - 11, 0x808080, false);
         }
 
