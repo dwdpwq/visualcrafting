@@ -396,6 +396,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     private static final String[] MODE8_TOOL_TIER_IDS = new String[]{"wood", "stone", "iron", "gold", "diamond", "netherite"};
     private static final String[] MODE8_TOOL_TIER_LABELS = new String[]{"木质（等级 0）", "石质（等级 1）", "铁质（等级 2）", "金质（等级 0）", "钻石（等级 3）", "下界合金（等级 4）"};
     private String mode8LastItemId = "";
+    private int mode8LastRegistrySignature = 0;
     private static final String[] MODE8_ATTR_LABELS_CN = new String[]{"攻击伤害", "攻击速度", "护甲值", "护甲韧性", "最大生命", "移动速度", "击退抗性", "幸运"};
     private static final String[] MODE8_SLOT_LABELS_CN = new String[]{"任意", "主手", "副手", "头盔", "胸甲", "护腿", "靴子"};
     private static final String[] MODE8_ENCHANT_LABELS_CN = new String[]{"锋利", "亡灵杀手", "节肢杀手", "击退", "火焰附加", "抢夺", "横扫之刃", "效率", "精准采集", "耐久", "时运", "保护", "火焰保护", "爆炸保护", "弹射物保护", "摔落保护", "水下呼吸", "水下速掘", "荆棘", "深海探索者", "迅捷潜行", "灵魂疾行", "经验修补", "力量", "冲击", "火矢", "无限", "海之眷顾", "饵钓", "多重射击", "穿透", "快速装填", "引雷", "激流", "忠诚", "穿刺", "消失诅咒", "绑定诅咒"};
@@ -4509,6 +4510,29 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     }
 
     protected void renderMode8Extras(GuiGraphics guiGraphics, int mouseX, int mouseY) {
+        ItemStack runtimeStack = this.menu.slots.get(81).getItem();
+        String runtimeItemId = runtimeStack.isEmpty() ? "" : BuiltInRegistries.ITEM.getKey(runtimeStack.getItem()).toString();
+        int registrySignature = BuiltInRegistries.ATTRIBUTE.keySet().hashCode();
+        if (this.minecraft != null && this.minecraft.level != null) {
+            try {
+                registrySignature = 31 * registrySignature + this.minecraft.level.registryAccess()
+                        .registryOrThrow(Registries.ENCHANTMENT).keySet().hashCode();
+            } catch (Throwable ignored) {
+            }
+        }
+        if (!runtimeItemId.equals(this.mode8LastItemId) || registrySignature != this.mode8LastRegistrySignature) {
+            this.mode8LastItemId = runtimeItemId;
+            this.mode8LastRegistrySignature = registrySignature;
+            if (this.mode8AttrDropdown != null) {
+                this.mode8AttrDropdown.setOptions(this.mode8AttrLabels(), 0);
+            }
+            if (this.mode8EnchantDropdown != null) {
+                this.mode8EnchantDropdown.setOptions(this.mode8EnchantLabels(), 0);
+            }
+            if (this.mode8ToolTierDropdown != null) {
+                this.mode8ToolTierDropdown.setSelected(this.mode8ToolTierIndex(runtimeStack));
+            }
+        }
         int gl = this.leftPos;
         int gt = this.topPos;
         int scroll8 = this.mode8ScrollOffset;
