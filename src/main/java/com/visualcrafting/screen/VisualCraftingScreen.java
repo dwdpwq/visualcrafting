@@ -4194,11 +4194,11 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         this.funcButtons.add(this.addRenderableWidget(this.mode7BtnConfig));
         this.funcButtons.add(this.addRenderableWidget(this.mode7BtnTexture));
         int controlX = this.leftPos + 100;
-        this.mode7TypeDropdown = new DropdownWidget(this, this, controlX, this.topPos + 13, 108);
+        this.mode7TypeDropdown = new DropdownWidget(this, controlX, this.topPos + 13, 108);
         this.mode7TypeDropdown.setOptions(this.mode7TypeLabels(), 0);
         this.mode7TypeDropdown.setOnSelect(this::onMode7TypeSelect);
         this.addRenderableWidget(this.mode7TypeDropdown);
-        this.mode7SubtypeDropdown = new DropdownWidget(this, this, controlX, this.topPos + 33, 108);
+        this.mode7SubtypeDropdown = new DropdownWidget(this, controlX, this.topPos + 33, 108);
         this.mode7SubtypeDropdown.setOptions(this.mode7SubtypeLabels(this.mode7TypeIdx), 0);
         this.mode7SubtypeDropdown.setOnSelect(index -> this.mode7SubtypeIdx = index);
         this.addRenderableWidget(this.mode7SubtypeDropdown);
@@ -4350,20 +4350,20 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         }
 
         int controlX = this.leftPos + 100;
-        this.mode8AttrDropdown = new DropdownWidget(this, this, controlX, this.topPos + MODE8_SCROLL_TOP, 108);
+        this.mode8AttrDropdown = new DropdownWidget(this, controlX, this.topPos + MODE8_SCROLL_TOP, 108);
         this.mode8AttrDropdown.setOptions(this.mode8AttrLabels(), 0);
         this.addWidget(this.mode8AttrDropdown);
         this.mode8AttrValueEdit = new EditBox(this.font, controlX, this.topPos + MODE8_SCROLL_TOP + MODE8_ROW_H, 54, 16, Component.empty());
         this.mode8AttrValueEdit.setMaxLength(16);
         this.mode8AttrValueEdit.setFilter(s -> s.matches("[0-9.\\-]*"));
         this.addWidget(this.mode8AttrValueEdit);
-        this.mode8OpDropdown = new DropdownWidget(this, this, controlX + 58, this.topPos + MODE8_SCROLL_TOP + MODE8_ROW_H, 82);
+        this.mode8OpDropdown = new DropdownWidget(this, controlX + 58, this.topPos + MODE8_SCROLL_TOP + MODE8_ROW_H, 82);
         this.mode8OpDropdown.setOptions(this.mode8OpLabels(), 0);
         this.addWidget(this.mode8OpDropdown);
-        this.mode8SlotDropdown = new DropdownWidget(this, this, controlX, this.topPos + MODE8_SCROLL_TOP + MODE8_ROW_H * 2, 108);
+        this.mode8SlotDropdown = new DropdownWidget(this, controlX, this.topPos + MODE8_SCROLL_TOP + MODE8_ROW_H * 2, 108);
         this.mode8SlotDropdown.setOptions(Arrays.asList(MODE8_SLOT_LABELS_CN), 0);
         this.addWidget(this.mode8SlotDropdown);
-        this.mode8EnchantDropdown = new DropdownWidget(this, this, controlX, this.topPos + MODE8_SCROLL_TOP + MODE8_ROW_H * 3, 108);
+        this.mode8EnchantDropdown = new DropdownWidget(this, controlX, this.topPos + MODE8_SCROLL_TOP + MODE8_ROW_H * 3, 108);
         this.mode8EnchantDropdown.setOptions(this.mode8EnchantLabels(), 0);
         this.addWidget(this.mode8EnchantDropdown);
         this.mode8EnchantLevelEdit = new EditBox(this.font, controlX, this.topPos + MODE8_SCROLL_TOP + MODE8_ROW_H * 4, 54, 16, Component.empty());
@@ -5110,7 +5110,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             }
         }
 
-        this.mode2Dropdown = new DropdownWidget(this, this, dropX, this.topPos + 6, dropW);
+        this.mode2Dropdown = new DropdownWidget(this, dropX, this.topPos + 6, dropW);
         this.mode2Dropdown.setOptions(arrayList, this.mode2DimIdx);
         this.mode2Dropdown.setOnSelect(n -> {
             this.mode2DimIdx = n;
@@ -5139,7 +5139,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             }
         }
 
-        this.mode2BiomeDropdown = new DropdownWidget(this, this, dropX, this.topPos + 24, dropW);
+        this.mode2BiomeDropdown = new DropdownWidget(this, dropX, this.topPos + 24, dropW);
         this.mode2BiomeDropdown.setMultiselect(true);
         this.mode2BiomeDropdown.setOptions(arrayList2, 0);
         this.mode2BiomeDropdown.setSelectedIndices(this.mode2BiomeSelectedIndices);
@@ -5371,7 +5371,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
 
         });
         this.addRenderableWidget(this.mode5SaturationEdit);
-        this.mode5PotionDropdown = new DropdownWidget(this, this, this.leftPos + 92, this.topPos + 64, 80);
+        this.mode5PotionDropdown = new DropdownWidget(this, this.leftPos + 92, this.topPos + 64, 80);
         // 单选：每次只配置一个效果，单次添加
         this.mode5PotionDropdown.setOnSelect(this::onMode5PotionSelect);
         this.mode5PotionDropdown.setOptions(this.mode5PotionNames, 0);
