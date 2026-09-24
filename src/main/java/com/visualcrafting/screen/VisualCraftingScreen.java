@@ -395,6 +395,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     private DropdownWidget mode8ToolTierDropdown;
     private static final String[] MODE8_TOOL_TIER_IDS = new String[]{"wood", "stone", "iron", "gold", "diamond", "netherite"};
     private static final String[] MODE8_TOOL_TIER_LABELS = new String[]{"木质（等级 0）", "石质（等级 1）", "铁质（等级 2）", "金质（等级 0）", "钻石（等级 3）", "下界合金（等级 4）"};
+    private String mode8LastItemId = "";
     private static final String[] MODE8_ATTR_LABELS_CN = new String[]{"攻击伤害", "攻击速度", "护甲值", "护甲韧性", "最大生命", "移动速度", "击退抗性", "幸运"};
     private static final String[] MODE8_SLOT_LABELS_CN = new String[]{"任意", "主手", "副手", "头盔", "胸甲", "护腿", "靴子"};
     private static final String[] MODE8_ENCHANT_LABELS_CN = new String[]{"锋利", "亡灵杀手", "节肢杀手", "击退", "火焰附加", "抢夺", "横扫之刃", "效率", "精准采集", "耐久", "时运", "保护", "火焰保护", "爆炸保护", "弹射物保护", "摔落保护", "水下呼吸", "水下速掘", "荆棘", "深海探索者", "迅捷潜行", "灵魂疾行", "经验修补", "力量", "冲击", "火矢", "无限", "海之眷顾", "饵钓", "多重射击", "穿透", "快速装填", "引雷", "激流", "忠诚", "穿刺", "消失诅咒", "绑定诅咒"};
@@ -4373,7 +4374,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         this.mode8EnchantDropdown.setOptions(this.mode8EnchantLabels(), 0);
         this.addWidget(this.mode8EnchantDropdown);
         this.mode8ToolTierDropdown = new DropdownWidget(this, controlX, this.topPos + MODE8_SCROLL_TOP + MODE8_ROW_H * 5, 108);
-        this.mode8ToolTierDropdown.setOptions(Arrays.asList(MODE8_TOOL_TIER_LABELS), 0);
+        this.mode8ToolTierDropdown.setOptions(Arrays.asList(MODE8_TOOL_TIER_LABELS), this.mode8ToolTierIndex(this.menu.slots.get(81).getItem()));
         this.addWidget(this.mode8ToolTierDropdown);
         this.mode8EnchantLevelEdit = new EditBox(this.font, controlX, this.topPos + MODE8_SCROLL_TOP + MODE8_ROW_H * 4, 54, 16, Component.empty());
         this.mode8EnchantLevelEdit.setMaxLength(4);
@@ -4440,6 +4441,22 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             labels.add(MODE8_ENCHANT_LABELS_CN[0]);
         }
         return labels;
+    }
+
+    private int mode8ToolTierIndex(ItemStack stack) {
+        Tool tool = stack.get(DataComponents.TOOL);
+        if (tool == null) return 0;
+        for (Tool.Rule rule : tool.rules()) {
+            Optional<TagKey<Block>> key = rule.blocks().unwrapKey();
+            if (key.isEmpty()) continue;
+            String path = key.get().location().getPath();
+            if (!path.startsWith("incorrect_for_") || !path.endsWith("_tool")) continue;
+            String tier = path.substring("incorrect_for_".length(), path.length() - "_tool".length());
+            for (int i = 0; i < MODE8_TOOL_TIER_IDS.length; ++i) {
+                if (MODE8_TOOL_TIER_IDS[i].equals(tier)) return i;
+            }
+        }
+        return 0;
     }
 
     int mode8MaxScroll() {
@@ -4610,7 +4627,9 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
 
             if (this.mode8ToolTierDropdown != null && stack.get(DataComponents.TOOL) != null) {
                 int tierIdx = Math.clamp(this.mode8ToolTierDropdown.getSelectedIdx(), 0, MODE8_TOOL_TIER_IDS.length - 1);
+                int currentTierIdx = this.mode8ToolTierIndex(stack);
                 Tool currentTool = modified.get(DataComponents.TOOL);
+                if (tierIdx != currentTierIdx) {
                 var blockRegistry = this.minecraft.level.registryAccess().registryOrThrow(Registries.BLOCK);
                 List<Tool.Rule> rules = new ArrayList<>();
                 TagKey<Block> pickaxeTag = TagKey.create(Registries.BLOCK, ResourceLocation.fromNamespaceAndPath("minecraft", "mineable/pickaxe"));
@@ -4618,7 +4637,8 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
                 rules.add(new Tool.Rule(blockRegistry.getOrCreateTag(pickaxeTag), Optional.of(currentTool.defaultMiningSpeed()), Optional.of(true)));
                 rules.add(new Tool.Rule(blockRegistry.getOrCreateTag(incorrectTag), Optional.empty(), Optional.of(false)));
                 modified.set(DataComponents.TOOL, new Tool(rules, currentTool.defaultMiningSpeed(), currentTool.damagePerBlock()));
-                changed = true;
+                    changed = true;
+                }
             }
 
             String durability = this.mode8DurabilityEdit.getValue().trim();
