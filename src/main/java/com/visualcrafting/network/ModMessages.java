@@ -221,17 +221,44 @@ public class ModMessages {
     /** Validate a player-supplied profile id to prevent path traversal. */
     private static boolean isValidProfileId(String profId) {
         if (profId == null || profId.isEmpty()) return false;
+        if ("__wandering_generic__".equals(profId) || "__wandering_rare__".equals(profId)) return true;
         if (profId.contains("..") || profId.contains("/") || profId.contains("\\") || profId.contains(":")) {
-            return false;
+            return profId.matches("[a-z0-9_.-]+:[a-z0-9_./-]+");
         }
         return profId.matches("[A-Za-z0-9_\\-]+");
     }
 
-    /** 兼容 GUI 传来的 "命名空间:id" 形式：统一剥掉命名空间，避免同一档案被写成两种目录。 */
+    /** 保留完整 registry id；旧版仅保存 path 的配置仍可通过 legacyProfileId 读取。 */
     private static String normalizeProfileId(String profId) {
-        if (profId == null) return null;
-        int sep = profId.indexOf(':');
-        return sep >= 0 ? profId.substring(sep + 1) : profId;
+        return profId == null ? null : profId.trim();
+    }
+
+    /** 将 registry id 安全映射为目录名，例如 examplemod:alchemist -> examplemod__alchemist。 */
+    private static String profileDirectoryId(String profId) {
+        return profId == null ? null : profId.replace(":", "__");
+    }
+
+    private static File getTradeProfessionDirectory(File worldDir, String profId, boolean create) {
+        File tradesRoot = new File(new File(worldDir, "visualcrafting"), "trades");
+        File canonicalDir = new File(tradesRoot, profileDirectoryId(profId));
+        if (profId != null && profId.contains(":")) {
+            File legacyDir = new File(tradesRoot, profId.substring(profId.indexOf(':') + 1));
+            if (!canonicalDir.isDirectory() && legacyDir.isDirectory()) return legacyDir;
+        }
+        if (create) canonicalDir.mkdirs();
+        return canonicalDir;
+    }
+
+    private static void deleteTradeLevelFiles(File profDir, int level) {
+        File[] files = profDir.listFiles((d, name) -> name.endsWith(".json"));
+        if (files == null) return;
+        for (File file : files) {
+            try {
+                JsonObject json = JsonParser.parseString(Files.readString(file.toPath(), StandardCharsets.UTF_8)).getAsJsonObject();
+                int fileLevel = Math.clamp(json.has("level") ? json.get("level").getAsInt() : 1, 1, 5);
+                if (fileLevel == level) file.delete();
+            } catch (Exception ignored) {}
+        }
     }
 
     /** 交易文件名（纯数字）转编号；非数字文件名排到末尾。 */
@@ -1012,7 +1039,7 @@ public class ModMessages {
                 // GUI 因此始终列出当前运行时所有职业，包括其他模组注册的职业。
                 for (ResourceLocation id : BuiltInRegistries.VILLAGER_PROFESSION.keySet()) {
                     String key = id.toString();
-                    String normalized = normalizeProfileId(key);
+                    String normalized = key;
                     if (!profIds.contains(normalized)) {
                         profIds.add(normalized);
                         profNames.add(key);
@@ -1164,7 +1191,7 @@ public class ModMessages {
             try {
                 File worldDir = serverPlayer.server.getWorldPath(LevelResource.ROOT).toFile();
                 // 交易实际存放在 world/visualcrafting/trades/<profId>/（与保存路径一致）
-                File profDir = new File(new File(new File(worldDir, "visualcrafting"), "trades"), profId);
+                File profDir = getTradeProfessionDirectory(worldDir, profId, true);
 
                 boolean deleted = false;
                 File[] tradeFiles = profDir.listFiles((d, name) -> name.endsWith(".json"));
