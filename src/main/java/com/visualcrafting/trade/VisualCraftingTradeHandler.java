@@ -21,6 +21,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * VisualCrafting 绿宝石交易页的服务端执行器。
@@ -74,7 +76,7 @@ public final class VisualCraftingTradeHandler {
                 .thenComparing(File::getName));
 
         List<TradeDefinition> definitions = new ArrayList<>();
-        boolean clearExisting = false;
+        Set<Integer> clearLevels = new HashSet<>();
 
         for (File file : files) {
             try {
@@ -88,7 +90,9 @@ public final class VisualCraftingTradeHandler {
                 }
 
                 definitions.add(definition);
-                clearExisting |= definition.clearExisting;
+                if (definition.clearExisting) {
+                    clearLevels.add(definition.level);
+                }
             } catch (Exception e) {
                 System.err.println("[VisualCrafting] Failed to load trade file "
                         + file.getAbsolutePath() + ": " + e.getMessage());
@@ -99,8 +103,9 @@ public final class VisualCraftingTradeHandler {
             return;
         }
 
-        if (clearExisting) {
-            for (List<VillagerTrades.ItemListing> levelTrades : event.getTrades().values()) {
+        for (Integer level : clearLevels) {
+            List<VillagerTrades.ItemListing> levelTrades = event.getTrades().get(level);
+            if (levelTrades != null) {
                 levelTrades.clear();
             }
         }
