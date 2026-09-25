@@ -77,6 +77,13 @@ public final class VisualCraftingTradeHandler {
         File root = server.getWorldPath(LevelResource.ROOT).toFile();
         applyWanderingOverrides(event.getGenericTrades(), "generic", root);
         applyWanderingOverrides(event.getRareTrades(), "rare", root);
+
+        // 将流浪商人作为一个独立编辑项接入 Mode 3：
+        // 等级 1 对应普通交易池，等级 2 对应稀有交易池。
+        Map<Integer, List<VillagerTrades.ItemListing>> customTrades = new HashMap<>();
+        customTrades.put(1, event.getGenericTrades());
+        customTrades.put(2, event.getRareTrades());
+        loadCustomTrades(customTrades, "minecraft:wandering_trader", root);
     }
 
     private static void applyVillagerOverrides(
