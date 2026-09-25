@@ -4,15 +4,15 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.npc.VillagerTrades;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.neoforge.server.ServerLifecycleHooks;
 import net.neoforged.neoforge.common.BasicItemListing;
 import net.neoforged.neoforge.event.village.VillagerTradesEvent;
-import net.minecraft.world.entity.npc.VillagerProfession;
+import net.minecraft.world.level.storage.LevelResource;
 
 import java.io.File;
 import java.nio.charset.StandardCharsets;
@@ -48,10 +48,11 @@ public final class VisualCraftingTradeHandler {
             return;
         }
 
-        File worldRoot = findWorldRoot(event);
-        if (worldRoot == null) {
+        var server = ServerLifecycleHooks.getCurrentServer();
+        if (server == null) {
             return;
         }
+        File worldRoot = server.getWorldPath(LevelResource.ROOT).toFile();
 
         String normalizedProfession = normalizeProfessionId(professionId);
         File professionDir = new File(
@@ -136,36 +137,6 @@ public final class VisualCraftingTradeHandler {
             System.out.println("[VisualCrafting] Loaded " + added
                     + " custom emerald trade(s) for " + professionId);
         }
-    }
-
-    /**
-     * VillagerTradesEvent 本身没有直接暴露 MinecraftServer。
-     * 交易表重建发生在服务器资源重载阶段；从当前事件无法安全拿到世界实例，
-     * 因此通过 JVM 当前工作目录 + 世界目录约定定位。
-     *
-     * 在专用服务器上通常为服务器根目录；单机集成服务器则由 game directory
-     * 作为工作目录。若目录不存在，返回 null，不影响原版交易。
-     */
-    private static File findWorldRoot(VillagerTradesEvent event) {
-        File current = new File(".");
-        File direct = new File(current, "visualcrafting");
-        if (direct.isDirectory()) {
-            return current;
-        }
-
-        // 单机/服务器的世界目录无法从 VillagerTradesEvent 直接取得时，
-        // 优先寻找当前目录下唯一的 saves/<world>/visualcrafting。
-        File saves = new File(current, "saves");
-        File[] worlds = saves.listFiles(File::isDirectory);
-        if (worlds != null) {
-            for (File world : worlds) {
-                if (new File(world, "visualcrafting/trades").isDirectory()) {
-                    return world;
-                }
-            }
-        }
-
-        return null;
     }
 
     private static String normalizeProfessionId(String id) {
