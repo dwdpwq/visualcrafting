@@ -127,7 +127,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     static final ResourceLocation TEX_T3 = ResourceLocation.fromNamespaceAndPath("visualcrafting", "textures/gui/crafting_table_tier3.png");
     static final ResourceLocation TAB_CRAFT = ResourceLocation.fromNamespaceAndPath("visualcrafting", "textures/gui/tab_crafting.png");
     static final ResourceLocation TAB_INFUSE = ResourceLocation.fromNamespaceAndPath("visualcrafting", "textures/gui/tab_infusing.png");
-    static final ResourceLocation TAB_VILLAGER = ResourceLocation.fromNamespaceAndPath("visualcrafting", "textures/gui/tab_crafting.png");
+    static final ResourceLocation TAB_EMERALD = ResourceLocation.fromNamespaceAndPath("visualcrafting", "textures/gui/tab_crafting.png");
     static final ResourceLocation TAB_FOOD = ResourceLocation.fromNamespaceAndPath("visualcrafting", "textures/gui/tab_food.png");
     static final ResourceLocation TAB_ORE = ResourceLocation.fromNamespaceAndPath("visualcrafting", "textures/gui/tab_ore.png");
     static final ResourceLocation ICO_DEL = ResourceLocation.fromNamespaceAndPath("visualcrafting", "textures/gui/recipe_delete.png");
@@ -136,7 +136,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     static final int TEXTURE_SIZE = 256;
     static final ItemStack ICON_CRAFT = new ItemStack(Items.CRAFTING_TABLE);
     static final ItemStack ICON_INFUSE = new ItemStack(Items.ENCHANTING_TABLE);
-    static final ItemStack ICON_VILLAGER = new ItemStack(Items.EMERALD);
+    static final ItemStack ICON_EMERALD = new ItemStack(Items.EMERALD);
     static final ItemStack ICON_FOOD = new ItemStack(Items.COOKED_BEEF);
     static final ItemStack ICON_NAME = new ItemStack(Items.NAME_TAG);
     static final ItemStack ICON_CREATE = new ItemStack(Items.TRIAL_KEY);
@@ -270,7 +270,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     float mode5PotionProbability = 0.0f;
     EditBox mode5ProbabilityEdit;
     int mode2OffsetX = 8;
-    // ===================== Mode 3: 绿宝石 / 村民交易 =====================
+    // ===================== Mode 3: 绿宝石交易 =====================
     List<String> mode3ProfessionNames = new ArrayList<String>();
     List<String> mode3ProfessionIds = new ArrayList<String>();
     int mode3ProfessionIdx = 0;
@@ -2473,7 +2473,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         }
 
         int tabTradeIconX = tabStartX + (tabWidth + tabGap) * 3 + 4;
-        guiGraphics.renderItem(ICON_VILLAGER, tabTradeIconX, craftIconY);
+        guiGraphics.renderItem(ICON_EMERALD, tabTradeIconX, craftIconY);
         if (this.mode == 3) {
             guiGraphics.renderOutline(tabStartX + (tabWidth + tabGap) * 3, tabStartY, tabWidth, tabHeight, -256);
         }
@@ -3468,7 +3468,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         this.renderSlotOutline(guiGraphics, 0);
         this.renderSlotOutline(guiGraphics, 1);
         this.renderSlotOutline(guiGraphics, 81);
-        guiGraphics.drawString(this.font, "职业", x + 94, y + 5, 0x404040, false);
+        guiGraphics.drawString(this.font, "村民职业", x + 94, y + 5, 0x404040, false);
         guiGraphics.drawString(this.font, "等级", x + 224, y + 5, 0x606060, false);
         guiGraphics.drawString(this.font, "成本 A", x + 58, y + 44, 0x404040, false);
         guiGraphics.drawString(this.font, "成本 B", x + 58, y + 72, 0x606060, false);
@@ -3480,8 +3480,8 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         guiGraphics.drawString(this.font, "数量", x + 126, y + 44, 0x808080, false);
         guiGraphics.drawString(this.font, "数量", x + 126, y + 72, 0x808080, false);
         guiGraphics.drawString(this.font, "数量", x + 126, y + 100, 0x808080, false);
-        guiGraphics.drawString(this.font, "把成本 A/B 当作玩家支付物品，结果为玩家获得物品。", x + 58, y + 119, 0x707070, false);
-        guiGraphics.drawString(this.font, "保存后使用 /reload；旧交易不会自动删除，勾选“覆盖原交易”可清空该等级后重新添加。", x + 58, y + 130, 0x707070, false);
+        guiGraphics.drawString(this.font, "成本 A/B 为玩家支付物品，结果为玩家获得物品；通常使用绿宝石作为主要货币。", x + 58, y + 119, 0x707070, false);
+        guiGraphics.drawString(this.font, "绿宝石交易保存后使用 /reload；勾选“覆盖原交易”会清空该职业的原有交易。", x + 58, y + 130, 0x707070, false);
     }
 
     protected void renderMode5Extras(GuiGraphics guiGraphics, int mouseX, int mouseY) {
@@ -5510,7 +5510,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             PacketDistributor.sendToServer(new ModMessages.RequestMode4DataPacket(), new CustomPacketPayload[0]);
             this.mode3DataRequested = true;
         }
-        this.mode3BtnSave = Button.builder(Component.literal("保存交易"), this::onMode3Save).pos(this.leftPos + 8, this.topPos + 12).size(58, 16).build();
+        this.mode3BtnSave = Button.builder(Component.literal("保存绿宝石交易"), this::onMode3Save).pos(this.leftPos + 8, this.topPos + 12).size(58, 16).build();
         this.mode3BtnDelete = Button.builder(Component.literal("删除编号"), this::onMode3Delete).pos(this.leftPos + 8, this.topPos + 31).size(58, 16).build();
         this.mode3BtnConfig = Button.builder(Component.literal("打开目录"), this::onMode3Config).pos(this.leftPos + 8, this.topPos + 50).size(58, 16).build();
         this.mode3BtnClearExisting = Button.builder(Component.literal(this.mode3ClearExisting ? "☑ 覆盖原交易" : "☐ 覆盖原交易"), b -> {
@@ -5589,7 +5589,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         json.addProperty("priceMultiplier", Math.max(0.0f, this.mode3PriceMultiplier));
         json.addProperty("clearExisting", this.mode3ClearExisting);
         PacketDistributor.sendToServer(new ModMessages.SaveTradePacket(this.mode3ProfessionIds.get(this.mode3ProfessionIdx), json.toString()), new CustomPacketPayload[0]);
-        this.showStatus("交易已写入，执行 /reload 后生效");
+        this.showStatus("绿宝石交易已保存，执行 /reload 后生效");
     }
 
     private String getItemIdForTradeSlot(int slotIndex) {
@@ -5601,7 +5601,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         if (this.mode3ProfessionIds.isEmpty() || this.mode3ProfessionIdx < 0 || this.mode3ProfessionIdx >= this.mode3ProfessionIds.size()) return;
         PacketDistributor.sendToServer(new ModMessages.RequestDeleteTradePacket(
                 this.mode3ProfessionIds.get(this.mode3ProfessionIdx), this.mode3DeleteIndex), new CustomPacketPayload[0]);
-        this.showStatus("已请求删除交易编号 " + this.mode3DeleteIndex + "，执行 /reload 后生效");
+        this.showStatus("已请求删除绿宝石交易编号 " + this.mode3DeleteIndex + "，执行 /reload 后生效");
     }
 
     private void onMode3Config(Button button) {
@@ -5623,11 +5623,11 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     }
 
     private void onSaveTradeResponse() {
-        this.showStatus("交易文件已保存。执行 /reload 后会重新注入村民交易。");
+        this.showStatus("绿宝石交易文件已保存。执行 /reload 后会重新注入交易。");
     }
 
     private void onDeleteTradeResponse() {
-        this.showStatus("交易文件已删除。执行 /reload 后会重新注入村民交易。");
+        this.showStatus("绿宝石交易文件已删除。执行 /reload 后会重新注入交易。");
     }
 
     private void initMode5Widgets() {
