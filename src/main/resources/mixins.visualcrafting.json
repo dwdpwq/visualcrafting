@@ -5,7 +5,8 @@
   "plugin": "com.visualcrafting.mixin.VisualCraftingMixinPlugin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
-    "WorldGenRegionBlockDisableMixin"
+    "WorldGenRegionBlockDisableMixin",
+    "VillagerProfessionJobSiteMixin"
   ],
   "client": [
     "AEBaseScreenMixin"
