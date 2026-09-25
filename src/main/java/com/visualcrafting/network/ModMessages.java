@@ -243,10 +243,20 @@ public class ModMessages {
         File canonicalDir = new File(tradesRoot, profileDirectoryId(profId));
         if (profId != null && profId.startsWith("minecraft:")) {
             File legacyDir = new File(tradesRoot, profId.substring(profId.indexOf(':') + 1));
-            if (!canonicalDir.isDirectory() && legacyDir.isDirectory()) return legacyDir;
+            // 兼容旧版目录：即使新版目录已经被创建，只要新版还没有交易文件，
+            // 仍优先读取旧目录，避免“职业能选中但交易列表为空”。
+            if (hasTradeJsonFiles(legacyDir) && !hasTradeJsonFiles(canonicalDir)) {
+                return legacyDir;
+            }
         }
         if (create) canonicalDir.mkdirs();
         return canonicalDir;
+    }
+
+    private static boolean hasTradeJsonFiles(File dir) {
+        if (dir == null || !dir.isDirectory()) return false;
+        File[] files = dir.listFiles((d, name) -> name.endsWith(".json"));
+        return files != null && files.length > 0;
     }
 
     private static void deleteTradeLevelFiles(File profDir, int level) {
