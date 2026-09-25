@@ -32,7 +32,7 @@ public class ClientSetup {
                             return new VisualCraftingScreen(
                                     (VisualCraftingMenu) args[0],
                                     (Inventory) args[1],
-                                    (Component) args[2]);
+                                    Component.empty());
                         }
                         if (method.isDefault()) {
                             return MethodHandles.lookup()
