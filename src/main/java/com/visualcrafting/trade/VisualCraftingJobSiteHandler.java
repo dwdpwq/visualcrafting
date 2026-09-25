@@ -66,7 +66,7 @@ public final class VisualCraftingJobSiteHandler {
             }
 
             Holder<PoiType> target = poi.get();
-            return candidate -> candidate.is(target);
+            return candidate -> candidate.equals(target);
         } catch (Exception e) {
             System.err.println("[VisualCrafting] Failed to load job-site override "
                     + file.getAbsolutePath() + ": " + e.getMessage());
