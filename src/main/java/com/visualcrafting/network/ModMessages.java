@@ -533,7 +533,17 @@ public class ModMessages {
             if (!(player instanceof ServerPlayer serverPlayer)) return;
             VisualCraftingBlockEntity vcBe = getAccessibleTable(serverPlayer, packet.pos);
             if (vcBe != null) {
-                vcBe.setTier(packet.tier);
+                int tier = Math.clamp(packet.tier, 0, 3);
+                vcBe.setTier(tier);
+
+                // 3x3 模式不保留隐藏的 4~9 阶输入，避免再次切到 CRT 时旧物品“复活”。
+                if (tier == 0 && serverPlayer.containerMenu instanceof VisualCraftingMenu vcMenu
+                        && vcMenu.blockPos.equals(packet.pos)) {
+                    for (int i = 9; i < VisualCraftingMenu.MAX_GRID; i++) {
+                        vcMenu.craftSlots.setItem(i, ItemStack.EMPTY);
+                    }
+                    vcMenu.broadcastChanges();
+                }
             }
         });
     }
@@ -546,6 +556,18 @@ public class ModMessages {
             if (vcBe == null) return;
 
             vcBe.setFormat(packet.format);
+
+            // KubeJS 与 CRT 格式切换统一回到 3x3，避免 CRT 终极网格残留。
+            vcBe.setTier(0);
+            if (serverPlayer.containerMenu instanceof VisualCraftingMenu vcMenu
+                    && vcMenu.blockPos.equals(packet.pos)) {
+                vcMenu.setTier(0);
+                for (int i = 9; i < VisualCraftingMenu.MAX_GRID; i++) {
+                    vcMenu.craftSlots.setItem(i, ItemStack.EMPTY);
+                }
+                vcMenu.broadcastChanges();
+            }
+
             RecipeRegistrar.updateTableRecipes(serverPlayer.getUUID(), packet.pos, vcBe.getRecipes(), vcBe.getFormat());
             RecipeRegistrar.regenerateScript(vcBe.getRecipes(), vcBe.getTier(), vcBe.getFormat());
 
@@ -561,6 +583,16 @@ public class ModMessages {
             VisualCraftingBlockEntity vcBe = getAccessibleTable(serverPlayer, packet.pos);
             if (vcBe != null) {
                 vcBe.setMode(packet.mode);
+                vcBe.setTier(0);
+
+                if (serverPlayer.containerMenu instanceof VisualCraftingMenu vcMenu
+                        && vcMenu.blockPos.equals(packet.pos)) {
+                    vcMenu.setTier(0);
+                    for (int i = 9; i < VisualCraftingMenu.MAX_GRID; i++) {
+                        vcMenu.craftSlots.setItem(i, ItemStack.EMPTY);
+                    }
+                    vcMenu.broadcastChanges();
+                }
             }
         });
     }
