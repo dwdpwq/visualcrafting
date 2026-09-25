@@ -16,9 +16,10 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.effect.MobEffect;
 
 public class FoodTabRenderer {
+    private final VisualCraftingScreen owner;
     private final List<String> potionIds = new ArrayList<>();
     private final List<String> potionNames = new ArrayList<>();
-    private final DropdownWidget potionDropdown = new DropdownWidget(0, 0, 64, 16, this.potionNames, 0, n -> {});
+    private final DropdownWidget potionDropdown;
     private EditBox nutritionField;
     private EditBox saturationField;
     private EditBox eatSecondsField;
@@ -28,8 +29,11 @@ public class FoodTabRenderer {
     private int guiLeft;
     private int guiTop;
 
-    public FoodTabRenderer() {
+    public FoodTabRenderer(VisualCraftingScreen owner) {
+        this.owner = owner;
+        this.potionDropdown = new DropdownWidget(owner, 0, 0, 64);
         this.loadPotionData();
+        this.potionDropdown.setOptions(this.potionNames, 0);
     }
 
     private void loadPotionData() {

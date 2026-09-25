@@ -115,15 +115,15 @@ public class DropdownWidget
 
         // Returns Y coordinate of the dropdown panel, flipping upward if it would overflow the GUI bottom
         private int getDropdownY() {
-        int screenBottom = this.owner.topPos + this.owner.imageHeight;
+        int screenBottom = this.owner.getGuiTop() + this.owner.getGuiHeight();
         int dropdownHeight = this.getDropdownHeight();
         int dropdownY = this.getY() + BUTTON_HEIGHT;
         if (dropdownY + dropdownHeight > screenBottom) {
         dropdownY = this.getY() - dropdownHeight;
         }
 
-        if (dropdownY < this.owner.topPos) {
-        dropdownY = this.owner.topPos;
+        if (dropdownY < this.owner.getGuiTop()) {
+        dropdownY = this.owner.getGuiTop();
         }
 
         return dropdownY;
@@ -232,7 +232,7 @@ public class DropdownWidget
         graphics.fill(this.getX(), this.getY(), this.getX() + this.width, this.getY() + BUTTON_HEIGHT, bgColor);
         graphics.renderOutline(this.getX(), this.getY(), this.width, BUTTON_HEIGHT, -1);
         int textColor = this.active ? 0xFFFFFF : 0xA0A0A0;
-        graphics.drawString(this.owner.font, this.getMessage(), this.getX() + 4, this.getY() + 4, textColor, false);
+        graphics.drawString(this.owner.getGuiFont(), this.getMessage(), this.getX() + 4, this.getY() + 4, textColor, false);
         if (this.expanded && !this.options.isEmpty()) {
         graphics.pose().pushPose();
         graphics.pose().translate(0.0f, 0.0f, 500.0f);
@@ -253,8 +253,8 @@ public class DropdownWidget
         }
 
         String checkmark = isSelected ? "☑" : "☐";
-        graphics.drawString(this.owner.font, checkmark, this.getX() + 4, rowY + 2, isSelected ? 0x55FF55 : 0x808080, false);
-        graphics.drawString(this.owner.font, this.options.get(optionIdx), this.getX() + 20, rowY + 2, 0xFFFFFF, false);
+        graphics.drawString(this.owner.getGuiFont(), checkmark, this.getX() + 4, rowY + 2, isSelected ? 0x55FF55 : 0x808080, false);
+        graphics.drawString(this.owner.getGuiFont(), this.options.get(optionIdx), this.getX() + 20, rowY + 2, 0xFFFFFF, false);
         continue;
         }
 
@@ -262,14 +262,14 @@ public class DropdownWidget
         graphics.fill(this.getX() + 1, rowY, this.getX() + this.width - 1, rowY + ROW_HEIGHT, 0x40FFFFFF);
         }
 
-        graphics.drawString(this.owner.font, this.options.get(optionIdx), this.getX() + 4, rowY + 2, 0xFFFFFF, false);
+        graphics.drawString(this.owner.getGuiFont(), this.options.get(optionIdx), this.getX() + 4, rowY + 2, 0xFFFFFF, false);
         }
 
         if (this.options.size() > visibleRows) {
         int totalPages = Math.max(0, this.options.size() - visibleRows);
         String scrollText = (this.scrollOffset + 1) + "/" + (totalPages + 1);
-        int scrollTextWidth = this.owner.font.width(scrollText);
-        graphics.drawString(this.owner.font, scrollText,
+        int scrollTextWidth = this.owner.getGuiFont().width(scrollText);
+        graphics.drawString(this.owner.getGuiFont(), scrollText,
                 this.getX() + this.width - scrollTextWidth - 4, dropdownY + dropdownHeight - 11, 0x808080, false);
         }
 
