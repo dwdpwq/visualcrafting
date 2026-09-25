@@ -7,7 +7,7 @@
   "item.visualcrafting.furnace_card.tooltip.speed": "Smelt Speed: %s tick",
   "item.visualcrafting.furnace_card.tooltip.tier": "Tier %s",
   "item.visualcrafting.furnace_card.tooltip.extract_exp": "Extract Experience",
-  "gui.visualcrafting.title": "Visual Crafting Table",
+  "gui.visualcrafting.title": "",
   "gui.visualcrafting.shaped": "Shaped",
   "gui.visualcrafting.shapeless": "Shapeless",
   "gui.visualcrafting.delete_recipe": "Delete Recipe",
