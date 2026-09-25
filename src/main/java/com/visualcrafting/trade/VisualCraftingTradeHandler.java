@@ -65,8 +65,8 @@ public final class VisualCraftingTradeHandler {
         if (server == null) return;
         File root = server.getWorldPath(LevelResource.ROOT).toFile();
 
-        applyVillagerOverrides(event.getTrades(), normalizeProfessionId(professionId), root);
-        loadCustomTrades(event.getTrades(), normalizeProfessionId(professionId), root);
+        applyVillagerOverrides(event.getTrades(), professionId, root);
+        loadCustomTrades(event.getTrades(), professionId, root);
     }
 
     @SubscribeEvent
@@ -83,8 +83,11 @@ public final class VisualCraftingTradeHandler {
             Map<Integer, List<VillagerTrades.ItemListing>> trades,
             String professionId,
             File worldRoot) {
-        File dir = new File(new File(new File(worldRoot, "visualcrafting"),
-                "trade_overrides/villager"), professionId);
+        File overrideRoot = new File(new File(worldRoot, "visualcrafting"), "trade_overrides/villager");
+        File dir = new File(overrideRoot, profileDirectoryId(professionId));
+        if (!dir.isDirectory() && professionId.contains(":")) {
+            dir = new File(overrideRoot, legacyProfessionId(professionId));
+        }
         if (!dir.isDirectory()) return;
 
         for (int level = 1; level <= 5; level++) {
@@ -184,9 +187,11 @@ public final class VisualCraftingTradeHandler {
             Map<Integer, List<VillagerTrades.ItemListing>> trades,
             String professionId,
             File worldRoot) {
-        File professionDir = new File(
-                new File(new File(worldRoot, "visualcrafting"), "trades"),
-                professionId);
+        File tradesRoot = new File(new File(worldRoot, "visualcrafting"), "trades");
+        File professionDir = new File(tradesRoot, profileDirectoryId(professionId));
+        if (!professionDir.isDirectory() && professionId.contains(":")) {
+            professionDir = new File(tradesRoot, legacyProfessionId(professionId));
+        }
         if (!professionDir.isDirectory()) return;
 
         File[] files = professionDir.listFiles((dir, name) -> name.endsWith(".json"));
@@ -243,8 +248,12 @@ public final class VisualCraftingTradeHandler {
         }
     }
 
-    private static String normalizeProfessionId(String id) {
-        int colon = id.indexOf(':');
+    private static String profileDirectoryId(String id) {
+        return id == null ? null : id.replace(":", "__");
+    }
+
+    private static String legacyProfessionId(String id) {
+        int colon = id == null ? -1 : id.indexOf(':');
         return colon >= 0 ? id.substring(colon + 1) : id;
     }
 
