@@ -85,7 +85,7 @@ public final class VisualCraftingTradeHandler {
             File worldRoot) {
         File overrideRoot = new File(new File(worldRoot, "visualcrafting"), "trade_overrides/villager");
         File dir = new File(overrideRoot, profileDirectoryId(professionId));
-        if (!dir.isDirectory() && professionId.contains(":")) {
+        if (!dir.isDirectory() && professionId.startsWith("minecraft:")) {
             dir = new File(overrideRoot, legacyProfessionId(professionId));
         }
         if (!dir.isDirectory()) return;
@@ -189,7 +189,7 @@ public final class VisualCraftingTradeHandler {
             File worldRoot) {
         File tradesRoot = new File(new File(worldRoot, "visualcrafting"), "trades");
         File professionDir = new File(tradesRoot, profileDirectoryId(professionId));
-        if (!professionDir.isDirectory() && professionId.contains(":")) {
+        if (!professionDir.isDirectory() && professionId.startsWith("minecraft:")) {
             professionDir = new File(tradesRoot, legacyProfessionId(professionId));
         }
         if (!professionDir.isDirectory()) return;
