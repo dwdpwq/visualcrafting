@@ -2487,19 +2487,19 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         int tabNameIconX = tabStartX + (tabWidth + tabGap) * 5 + 4;
         guiGraphics.renderItem(ICON_NAME, tabNameIconX, craftIconY);
         if (this.mode == 6) {
-            guiGraphics.renderOutline(tabStartX + (tabWidth + tabGap) * 4, tabStartY, tabWidth, tabHeight, -256);
-        }
-
-        int tabCreateIconX = tabStartX + (tabWidth + tabGap) * 5 + 4;
-        guiGraphics.renderItem(ICON_CREATE, tabCreateIconX, craftIconY);
-        if (this.mode == 7) {
             guiGraphics.renderOutline(tabStartX + (tabWidth + tabGap) * 5, tabStartY, tabWidth, tabHeight, -256);
         }
 
-        int tabEnhanceIconX = tabStartX + (tabWidth + tabGap) * 6 + 4;
+        int tabCreateIconX = tabStartX + (tabWidth + tabGap) * 6 + 4;
+        guiGraphics.renderItem(ICON_CREATE, tabCreateIconX, craftIconY);
+        if (this.mode == 7) {
+            guiGraphics.renderOutline(tabStartX + (tabWidth + tabGap) * 6, tabStartY, tabWidth, tabHeight, -256);
+        }
+
+        int tabEnhanceIconX = tabStartX + (tabWidth + tabGap) * 7 + 4;
         guiGraphics.renderItem(ICON_ENHANCE, tabEnhanceIconX, craftIconY);
         if (this.mode == 8) {
-            guiGraphics.renderOutline(tabStartX + (tabWidth + tabGap) * 6, tabStartY, tabWidth, tabHeight, -256);
+            guiGraphics.renderOutline(tabStartX + (tabWidth + tabGap) * 7, tabStartY, tabWidth, tabHeight, -256);
         }
 
         if (this.mode == 0) {
@@ -2639,27 +2639,18 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             return true;
         }
 
-        if (mouseX >= (double)(tabStartX + (tabWidth + tabGap) * 5) && mouseX < (double)(tabStartX + (tabWidth + tabGap) * 4 + tabWidth) && mouseY >= (double)tabStartY && mouseY < (double)(tabStartY + 24)) {
-            if (this.mode != 6) {
-                        this.switchMode(6);
-            }
-
-            return true;
-        }
-
         if (mouseX >= (double)(tabStartX + (tabWidth + tabGap) * 5) && mouseX < (double)(tabStartX + (tabWidth + tabGap) * 5 + tabWidth) && mouseY >= (double)tabStartY && mouseY < (double)(tabStartY + 24)) {
-            if (this.mode != 7) {
-                        this.switchMode(7);
-            }
-
+            if (this.mode != 6) this.switchMode(6);
             return true;
         }
 
         if (mouseX >= (double)(tabStartX + (tabWidth + tabGap) * 6) && mouseX < (double)(tabStartX + (tabWidth + tabGap) * 6 + tabWidth) && mouseY >= (double)tabStartY && mouseY < (double)(tabStartY + 24)) {
-            if (this.mode != 8) {
-                        this.switchMode(8);
-            }
+            if (this.mode != 7) this.switchMode(7);
+            return true;
+        }
 
+        if (mouseX >= (double)(tabStartX + (tabWidth + tabGap) * 7) && mouseX < (double)(tabStartX + (tabWidth + tabGap) * 7 + tabWidth) && mouseY >= (double)tabStartY && mouseY < (double)(tabStartY + 24)) {
+            if (this.mode != 8) this.switchMode(8);
             return true;
         }
 
@@ -5544,7 +5535,11 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         this.mode3ResultCountEdit = this.createMode3Edit(this.leftPos + 118, this.topPos + 96, 28, String.valueOf(this.mode3ResultCount), "\\d{0,2}", v -> this.mode3ResultCount = Math.clamp(parseInt(v, 1), 1, 64));
         this.mode3MaxUsesEdit = this.createMode3Edit(this.leftPos + 168, this.topPos + 96, 28, String.valueOf(this.mode3MaxUses), "\\d{0,4}", v -> this.mode3MaxUses = Math.clamp(parseInt(v, 12), 1, 9999));
         this.mode3XpEdit = this.createMode3Edit(this.leftPos + 218, this.topPos + 96, 28, String.valueOf(this.mode3Xp), "\\d{0,4}", v -> this.mode3Xp = Math.clamp(parseInt(v, 2), 0, 9999));
-        this.mode3MultiplierEdit = this.createMode3Edit(this.leftPos + 168, this.topPos + 68, 42, String.valueOf(this.mode3PriceMultiplier), "\\d*\\.?\\d{0,3}", v -> this.mode3PriceMultiplier = Math.max(0.0f, parseFloat(v, 0.05f)));
+        this.mode3MultiplierEdit = new EditBox(this.font, this.leftPos + 168, this.topPos + 68, 42, 16, Component.empty());
+        this.mode3MultiplierEdit.setFilter(s -> s.isEmpty() || s.matches("\\d*\\.?\\d{0,3}"));
+        this.mode3MultiplierEdit.setValue(String.valueOf(this.mode3PriceMultiplier));
+        this.mode3MultiplierEdit.setResponder(s -> this.mode3PriceMultiplier = Math.max(0.0f, parseFloat(s, 0.05f)));
+        this.addRenderableWidget(this.mode3MultiplierEdit);
         this.mode3DeleteIndexEdit = this.createMode3Edit(this.leftPos + 168, this.topPos + 40, 42, String.valueOf(this.mode3DeleteIndex), "\\d{0,4}", v -> this.mode3DeleteIndex = Math.max(0, parseInt(v, 0)));
     }
 
