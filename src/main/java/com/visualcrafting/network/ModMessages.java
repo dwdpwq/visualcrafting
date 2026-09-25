@@ -99,6 +99,14 @@ public class ModMessages {
             ResourceLocation.fromNamespaceAndPath("visualcrafting", "delete_trade");
     public static final ResourceLocation DELETE_TRADE_RESPONSE_ID =
             ResourceLocation.fromNamespaceAndPath("visualcrafting", "delete_trade_response");
+    public static final ResourceLocation REQUEST_TRADE_LIST_ID =
+            ResourceLocation.fromNamespaceAndPath("visualcrafting", "request_trade_list");
+    public static final ResourceLocation SYNC_TRADE_LIST_ID =
+            ResourceLocation.fromNamespaceAndPath("visualcrafting", "sync_trade_list");
+    public static final ResourceLocation CLEAR_TRADE_LEVEL_ID =
+            ResourceLocation.fromNamespaceAndPath("visualcrafting", "clear_trade_level");
+    public static final ResourceLocation CLEAR_TRADE_LEVEL_RESPONSE_ID =
+            ResourceLocation.fromNamespaceAndPath("visualcrafting", "clear_trade_level_response");
     public static final ResourceLocation DISABLE_BLOCK_ID =
             ResourceLocation.fromNamespaceAndPath("visualcrafting", "disable_block");
     public static final ResourceLocation SYNC_DISABLED_BLOCKS_ID =
@@ -159,6 +167,14 @@ public class ModMessages {
                 ModMessages::handleDeleteTrade);
         registrar.playToClient(DeleteTradeResponsePacket.TYPE, DeleteTradeResponsePacket.STREAM_CODEC,
                 ModMessages::handleDeleteTradeResponse);
+        registrar.playToServer(RequestTradeListPacket.TYPE, RequestTradeListPacket.STREAM_CODEC,
+                ModMessages::handleRequestTradeList);
+        registrar.playToClient(SyncTradeListPacket.TYPE, SyncTradeListPacket.STREAM_CODEC,
+                ModMessages::handleSyncTradeList);
+        registrar.playToServer(ClearTradeLevelPacket.TYPE, ClearTradeLevelPacket.STREAM_CODEC,
+                ModMessages::handleClearTradeLevel);
+        registrar.playToClient(ClearTradeLevelResponsePacket.TYPE, ClearTradeLevelResponsePacket.STREAM_CODEC,
+                ModMessages::handleClearTradeLevelResponse);
         registrar.playToServer(DisableBlockPacket.TYPE, DisableBlockPacket.STREAM_CODEC, ModMessages::handleDisableBlock);
         registrar.playToServer(RequestDisabledBlocksPacket.TYPE, RequestDisabledBlocksPacket.STREAM_CODEC,
                 ModMessages::handleRequestDisabledBlocks);
@@ -1190,6 +1206,145 @@ public class ModMessages {
         });
     }
 
+    private static void handleRequestTradeList(RequestTradeListPacket packet, IPayloadContext ctx) {
+        ctx.enqueueWork(() -> {
+            Player player = ctx.player();
+            if (!(player instanceof ServerPlayer serverPlayer)) return;
+
+            String profId = normalizeProfileId(packet.profId());
+            if (!isValidProfileId(profId)) return;
+
+            int level = Math.clamp(packet.level(), 1, 5);
+            List<String> labels = new ArrayList<>();
+            List<Integer> indices = new ArrayList<>();
+
+            try {
+                File worldDir = serverPlayer.server.getWorldPath(LevelResource.ROOT).toFile();
+                File profDir = new File(new File(new File(worldDir, "visualcrafting"), "trades"), profId);
+                File[] files = profDir.listFiles((d, name) -> name.endsWith(".json"));
+                if (files != null) {
+                    Arrays.sort(files, Comparator.comparingInt(ModMessages::tradeFileIndex)
+                            .thenComparing(File::getName));
+                    for (File file : files) {
+                        int index = tradeFileIndex(file);
+                        if (index == Integer.MAX_VALUE) continue;
+                        try {
+                            JsonObject json = JsonParser.parseString(
+                                    Files.readString(file.toPath(), StandardCharsets.UTF_8)).getAsJsonObject();
+                            int tradeLevel = Math.clamp(json.has("level") ? json.get("level").getAsInt() : 1, 1, 5);
+                            if (tradeLevel != level) continue;
+
+                            String cost1 = json.has("cost1") ? json.get("cost1").getAsString() : "";
+                            String cost2 = json.has("cost2") ? json.get("cost2").getAsString() : "";
+                            String result = json.has("result") ? json.get("result").getAsString() : "";
+                            int cost1Count = json.has("cost1Count") ? json.get("cost1Count").getAsInt() : 1;
+                            int cost2Count = json.has("cost2Count") ? json.get("cost2Count").getAsInt() : 0;
+                            int resultCount = json.has("resultCount") ? json.get("resultCount").getAsInt() : 1;
+
+                            StringBuilder label = new StringBuilder();
+                            label.append(index + 1).append(". ")
+                                    .append(cost1Count).append("x ").append(shortItemId(cost1));
+                            if (!cost2.isEmpty() && cost2Count > 0) {
+                                label.append(" + ").append(cost2Count).append("x ").append(shortItemId(cost2));
+                            }
+                            label.append(" → ").append(resultCount).append("x ").append(shortItemId(result));
+                            labels.add(label.toString());
+                            indices.add(index);
+                        } catch (Exception ignored) {
+                            // 单个坏文件不应影响整个交易列表。
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                System.err.println("[VisualCrafting] Failed to load trade list: " + e.getMessage());
+            }
+
+            PacketDistributor.sendToPlayer(serverPlayer,
+                    new SyncTradeListPacket(profId, level, labels, indices));
+        });
+    }
+
+    private static String shortItemId(String id) {
+        if (id == null || id.isEmpty()) return "?";
+        int colon = id.indexOf(':');
+        return colon >= 0 ? id.substring(colon + 1) : id;
+    }
+
+    private static void handleSyncTradeList(SyncTradeListPacket packet, IPayloadContext ctx) {
+        ctx.enqueueWork(() -> {
+            Screen screen = Minecraft.getInstance().screen;
+            if (screen instanceof VisualCraftingScreen vcScreen) {
+                try {
+                    java.lang.reflect.Method method = vcScreen.getClass()
+                            .getDeclaredMethod("updateMode3TradeList",
+                                    String.class, int.class, List.class, List.class);
+                    method.invoke(vcScreen, packet.profId, packet.level,
+                            packet.labels, packet.indices);
+                } catch (Exception e) {
+                    System.err.println("[VisualCrafting] Client trade list sync failed: "
+                            + e.getClass().getSimpleName() + ": " + e.getMessage());
+                }
+            }
+        });
+    }
+
+    private static void handleClearTradeLevel(ClearTradeLevelPacket packet, IPayloadContext ctx) {
+        ctx.enqueueWork(() -> {
+            Player player = ctx.player();
+            if (!(player instanceof ServerPlayer serverPlayer)) return;
+
+            String profId = normalizeProfileId(packet.profId());
+            if (!isValidProfileId(profId)) return;
+            int level = Math.clamp(packet.level(), 1, 5);
+
+            try {
+                File worldDir = serverPlayer.server.getWorldPath(LevelResource.ROOT).toFile();
+                File profDir = new File(new File(new File(worldDir, "visualcrafting"), "trades"), profId);
+                profDir.mkdirs();
+
+                File[] files = profDir.listFiles((d, name) -> name.endsWith(".json"));
+                if (files != null) {
+                    for (File file : files) {
+                        try {
+                            JsonObject json = JsonParser.parseString(
+                                    Files.readString(file.toPath(), StandardCharsets.UTF_8)).getAsJsonObject();
+                            int fileLevel = Math.clamp(json.has("level") ? json.get("level").getAsInt() : 1, 1, 5);
+                            if (fileLevel == level) file.delete();
+                        } catch (Exception ignored) {
+                        }
+                    }
+                }
+
+                // 保留一个“本级清空”标记，使 /reload 时同时清空原版/其他模组该职业的本级交易。
+                JsonObject clear = new JsonObject();
+                clear.addProperty("level", level);
+                clear.addProperty("clearExisting", true);
+                Files.writeString(new File(profDir, "clear-" + level + ".json").toPath(),
+                        GSON.toJson(clear), StandardCharsets.UTF_8);
+
+                PacketDistributor.sendToPlayer(serverPlayer, new ClearTradeLevelResponsePacket());
+            } catch (Exception e) {
+                System.err.println("[VisualCrafting] Failed to clear trade level: " + e.getMessage());
+            }
+        });
+    }
+
+    private static void handleClearTradeLevelResponse(ClearTradeLevelResponsePacket packet, IPayloadContext ctx) {
+        ctx.enqueueWork(() -> {
+            Screen screen = Minecraft.getInstance().screen;
+            if (screen instanceof VisualCraftingScreen vcScreen) {
+                try {
+                    java.lang.reflect.Method method = vcScreen.getClass()
+                            .getDeclaredMethod("onClearTradeLevelResponse");
+                    method.invoke(vcScreen);
+                } catch (Exception e) {
+                    System.err.println("[VisualCrafting] Client clear trade response failed: "
+                            + e.getClass().getSimpleName() + ": " + e.getMessage());
+                }
+            }
+        });
+    }
+
     // ========================================================================
     // Packet records
     // ========================================================================
@@ -1614,6 +1769,82 @@ public class ModMessages {
             return new SyncMode4DataPacket(profNames, profIds, mgmtProfNames, mgmtProfIds,
                     mgmtTradeLabels, mgmtTradeDisabled);
         }
+    }
+
+    public record RequestTradeListPacket(String profId, int level) implements CustomPacketPayload {
+        public static final Type<RequestTradeListPacket> TYPE = new Type<>(REQUEST_TRADE_LIST_ID);
+        public static final StreamCodec<RegistryFriendlyByteBuf, RequestTradeListPacket> STREAM_CODEC =
+                StreamCodec.of(RequestTradeListPacket::encode, RequestTradeListPacket::decode);
+
+        @Override
+        public Type<RequestTradeListPacket> type() { return TYPE; }
+
+        private static void encode(RegistryFriendlyByteBuf buf, RequestTradeListPacket pkt) {
+            buf.writeUtf(pkt.profId);
+            buf.writeVarInt(pkt.level);
+        }
+
+        private static RequestTradeListPacket decode(RegistryFriendlyByteBuf buf) {
+            return new RequestTradeListPacket(buf.readUtf(), buf.readVarInt());
+        }
+    }
+
+    public record SyncTradeListPacket(String profId, int level, List<String> labels, List<Integer> indices)
+            implements CustomPacketPayload {
+        public static final Type<SyncTradeListPacket> TYPE = new Type<>(SYNC_TRADE_LIST_ID);
+        public static final StreamCodec<RegistryFriendlyByteBuf, SyncTradeListPacket> STREAM_CODEC =
+                StreamCodec.of(SyncTradeListPacket::encode, SyncTradeListPacket::decode);
+
+        @Override
+        public Type<SyncTradeListPacket> type() { return TYPE; }
+
+        private static void encode(RegistryFriendlyByteBuf buf, SyncTradeListPacket pkt) {
+            buf.writeUtf(pkt.profId);
+            buf.writeVarInt(pkt.level);
+            buf.writeVarInt(pkt.labels.size());
+            for (String label : pkt.labels) buf.writeUtf(label);
+            buf.writeVarInt(pkt.indices.size());
+            for (Integer index : pkt.indices) buf.writeVarInt(index);
+        }
+
+        private static SyncTradeListPacket decode(RegistryFriendlyByteBuf buf) {
+            String profId = buf.readUtf();
+            int level = buf.readVarInt();
+            int labelCount = buf.readVarInt();
+            List<String> labels = new ArrayList<>();
+            for (int i = 0; i < labelCount; i++) labels.add(buf.readUtf());
+            int indexCount = buf.readVarInt();
+            List<Integer> indices = new ArrayList<>();
+            for (int i = 0; i < indexCount; i++) indices.add(buf.readVarInt());
+            return new SyncTradeListPacket(profId, level, labels, indices);
+        }
+    }
+
+    public record ClearTradeLevelPacket(String profId, int level) implements CustomPacketPayload {
+        public static final Type<ClearTradeLevelPacket> TYPE = new Type<>(CLEAR_TRADE_LEVEL_ID);
+        public static final StreamCodec<RegistryFriendlyByteBuf, ClearTradeLevelPacket> STREAM_CODEC =
+                StreamCodec.of(ClearTradeLevelPacket::encode, ClearTradeLevelPacket::decode);
+
+        @Override
+        public Type<ClearTradeLevelPacket> type() { return TYPE; }
+
+        private static void encode(RegistryFriendlyByteBuf buf, ClearTradeLevelPacket pkt) {
+            buf.writeUtf(pkt.profId);
+            buf.writeVarInt(pkt.level);
+        }
+
+        private static ClearTradeLevelPacket decode(RegistryFriendlyByteBuf buf) {
+            return new ClearTradeLevelPacket(buf.readUtf(), buf.readVarInt());
+        }
+    }
+
+    public record ClearTradeLevelResponsePacket() implements CustomPacketPayload {
+        public static final Type<ClearTradeLevelResponsePacket> TYPE = new Type<>(CLEAR_TRADE_LEVEL_RESPONSE_ID);
+        public static final StreamCodec<RegistryFriendlyByteBuf, ClearTradeLevelResponsePacket> STREAM_CODEC =
+                StreamCodec.of((buf, pkt) -> {}, buf -> new ClearTradeLevelResponsePacket());
+
+        @Override
+        public Type<ClearTradeLevelResponsePacket> type() { return TYPE; }
     }
 
     public record SaveTradePacket(String profId, String tradeJson) implements CustomPacketPayload {
