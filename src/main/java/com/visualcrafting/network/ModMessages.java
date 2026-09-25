@@ -1337,7 +1337,7 @@ public class ModMessages {
 
             try {
                 File worldDir = serverPlayer.server.getWorldPath(LevelResource.ROOT).toFile();
-                File profDir = new File(new File(new File(worldDir, "visualcrafting"), "trades"), profId);
+                File profDir = getTradeProfessionDirectory(worldDir, profId, true);
                 profDir.mkdirs();
 
                 File[] files = profDir.listFiles((d, name) -> name.endsWith(".json"));
