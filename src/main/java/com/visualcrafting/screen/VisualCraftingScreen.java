@@ -270,6 +270,33 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     float mode5PotionProbability = 0.0f;
     EditBox mode5ProbabilityEdit;
     int mode2OffsetX = 8;
+    // ===================== Mode 3: 绿宝石 / 村民交易 =====================
+    List<String> mode3ProfessionNames = new ArrayList<String>();
+    List<String> mode3ProfessionIds = new ArrayList<String>();
+    int mode3ProfessionIdx = 0;
+    int mode3Level = 1;
+    int mode3Cost1Count = 1;
+    int mode3Cost2Count = 0;
+    int mode3ResultCount = 1;
+    int mode3MaxUses = 12;
+    int mode3Xp = 2;
+    float mode3PriceMultiplier = 0.05f;
+    boolean mode3ClearExisting = false;
+    int mode3DeleteIndex = 0;
+    DropdownWidget mode3ProfessionDropdown;
+    EditBox mode3Cost1CountEdit;
+    EditBox mode3Cost2CountEdit;
+    EditBox mode3ResultCountEdit;
+    EditBox mode3LevelEdit;
+    EditBox mode3MaxUsesEdit;
+    EditBox mode3XpEdit;
+    EditBox mode3MultiplierEdit;
+    EditBox mode3DeleteIndexEdit;
+    Button mode3BtnSave;
+    Button mode3BtnDelete;
+    Button mode3BtnConfig;
+    Button mode3BtnClearExisting;
+    boolean mode3DataRequested = false;
     ItemStack mode5LastSlot0Item = ItemStack.EMPTY;
     Button mode5BtnSave;
     Button mode5BtnDelete;
@@ -643,6 +670,8 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         this.menu.updateSlotPositions(this.tier);
         if (this.mode == 0) {
             this.initCraftingWidgets();
+        } else if (this.mode == 3) {
+            this.initMode3Widgets();
         } else if (this.mode == 5) {
             this.initMode5Widgets();
                 } else if (this.mode == 1 || this.mode == 2) {
@@ -2301,6 +2330,8 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             this.layoutInfusingSlots();
         } else if (this.mode == 2) {
             this.layoutMode2Slots();
+        } else if (this.mode == 3) {
+            this.layoutMode3Slots();
         } else if (this.mode == 5) {
             this.layoutMode5Slots();
         } else if (this.mode == 6) {
@@ -2377,6 +2408,13 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     /**
      * Mode5 食物：效果槽 0 (y=17) 与 1 (y=40)，其余隐藏。
      */
+    private void layoutMode3Slots() {
+        this.hideCraftingSlotsAndOutput();
+        this.setSlotPosition(0, 94, 40);
+        this.setSlotPosition(1, 94, 68);
+        this.setSlotPosition(81, 94, 96);
+    }
+
     private void layoutMode5Slots() {
         this.hideCraftingSlotsAndOutput();
         this.setSlotPosition(0, 94, 17);
@@ -2434,13 +2472,19 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             guiGraphics.renderOutline(tabStartX + (tabWidth + tabGap) * 2, tabStartY, tabWidth, tabHeight, -256);
         }
 
-        int tabFoodIconX = tabStartX + (tabWidth + tabGap) * 3 + 4;
-        guiGraphics.blit(TAB_FOOD, tabFoodIconX, craftIconY, 0.0f, 0.0f, 16, 16, 16, 16);
-                if (this.mode == 5) {
+        int tabTradeIconX = tabStartX + (tabWidth + tabGap) * 3 + 4;
+        guiGraphics.renderItem(ICON_VILLAGER, tabTradeIconX, craftIconY);
+        if (this.mode == 3) {
             guiGraphics.renderOutline(tabStartX + (tabWidth + tabGap) * 3, tabStartY, tabWidth, tabHeight, -256);
         }
 
-        int tabNameIconX = tabStartX + (tabWidth + tabGap) * 4 + 4;
+        int tabFoodIconX = tabStartX + (tabWidth + tabGap) * 4 + 4;
+        guiGraphics.blit(TAB_FOOD, tabFoodIconX, craftIconY, 0.0f, 0.0f, 16, 16, 16, 16);
+        if (this.mode == 5) {
+            guiGraphics.renderOutline(tabStartX + (tabWidth + tabGap) * 4, tabStartY, tabWidth, tabHeight, -256);
+        }
+
+        int tabNameIconX = tabStartX + (tabWidth + tabGap) * 5 + 4;
         guiGraphics.renderItem(ICON_NAME, tabNameIconX, craftIconY);
         if (this.mode == 6) {
             guiGraphics.renderOutline(tabStartX + (tabWidth + tabGap) * 4, tabStartY, tabWidth, tabHeight, -256);
@@ -2475,7 +2519,9 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         } else if (this.mode == 1) {
             this.renderInfusingExtras(guiGraphics);
             this.renderInfuseList(guiGraphics, mouseX, mouseY);
-                } else if (this.mode == 5) {
+        } else if (this.mode == 3) {
+            this.renderMode3Extras(guiGraphics, mouseX, mouseY);
+        } else if (this.mode == 5) {
             this.renderMode5Extras(guiGraphics, mouseX, mouseY);
         } else if (this.mode == 6) {
             this.renderNameExtras(guiGraphics, mouseX, mouseY);
@@ -2584,14 +2630,16 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             return true;
         }
                 if (mouseX >= (double)(tabStartX + (tabWidth + tabGap) * 3) && mouseX < (double)(tabStartX + (tabWidth + tabGap) * 3 + tabWidth) && mouseY >= (double)tabStartY && mouseY < (double)(tabStartY + 24)) {
-            if (this.mode != 5) {
-                        this.switchMode(5);
-            }
-
+            if (this.mode != 3) this.switchMode(3);
             return true;
         }
 
         if (mouseX >= (double)(tabStartX + (tabWidth + tabGap) * 4) && mouseX < (double)(tabStartX + (tabWidth + tabGap) * 4 + tabWidth) && mouseY >= (double)tabStartY && mouseY < (double)(tabStartY + 24)) {
+            if (this.mode != 5) this.switchMode(5);
+            return true;
+        }
+
+        if (mouseX >= (double)(tabStartX + (tabWidth + tabGap) * 5) && mouseX < (double)(tabStartX + (tabWidth + tabGap) * 4 + tabWidth) && mouseY >= (double)tabStartY && mouseY < (double)(tabStartY + 24)) {
             if (this.mode != 6) {
                         this.switchMode(6);
             }
@@ -2743,6 +2791,10 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             case 2 -> new DropdownWidget[]{
                     this.mode2BiomeDropdown,
                     this.mode2Dropdown
+            };
+
+            case 3 -> new DropdownWidget[]{
+                    this.mode3ProfessionDropdown
             };
 
             case 5 -> new DropdownWidget[]{
@@ -3418,6 +3470,27 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             int curIdx = this.mode5PotionSelectedIdx.isEmpty() ? 0 : this.mode5PotionSelectedIdx.iterator().next();
             this.mode5PotionDropdown.setOptions(this.mode5PotionNames, curIdx);
         }
+    }
+
+    protected void renderMode3Extras(GuiGraphics guiGraphics, int mouseX, int mouseY) {
+        int x = this.leftPos, y = this.topPos;
+        this.renderSlotOutline(guiGraphics, 0);
+        this.renderSlotOutline(guiGraphics, 1);
+        this.renderSlotOutline(guiGraphics, 81);
+        guiGraphics.drawString(this.font, "职业", x + 94, y + 5, 0x404040, false);
+        guiGraphics.drawString(this.font, "等级", x + 224, y + 5, 0x606060, false);
+        guiGraphics.drawString(this.font, "成本 A", x + 58, y + 44, 0x404040, false);
+        guiGraphics.drawString(this.font, "成本 B", x + 58, y + 72, 0x606060, false);
+        guiGraphics.drawString(this.font, "结果", x + 58, y + 100, 0x404040, false);
+        guiGraphics.drawString(this.font, "删除编号", x + 112, y + 44, 0x606060, false);
+        guiGraphics.drawString(this.font, "倍率", x + 112, y + 72, 0x606060, false);
+        guiGraphics.drawString(this.font, "最大次数", x + 146, y + 100, 0x606060, false);
+        guiGraphics.drawString(this.font, "经验", x + 198, y + 100, 0x606060, false);
+        guiGraphics.drawString(this.font, "数量", x + 126, y + 44, 0x808080, false);
+        guiGraphics.drawString(this.font, "数量", x + 126, y + 72, 0x808080, false);
+        guiGraphics.drawString(this.font, "数量", x + 126, y + 100, 0x808080, false);
+        guiGraphics.drawString(this.font, "把成本 A/B 当作玩家支付物品，结果为玩家获得物品。", x + 58, y + 119, 0x707070, false);
+        guiGraphics.drawString(this.font, "保存后使用 /reload；旧交易不会自动删除，勾选“覆盖原交易”可清空该等级后重新添加。", x + 58, y + 130, 0x707070, false);
     }
 
     protected void renderMode5Extras(GuiGraphics guiGraphics, int mouseX, int mouseY) {
@@ -5438,6 +5511,129 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         this.reverseParseOreGenFiles();
         this.updateMode2ButtonLabels();
         this.updateMode2ButtonStates();
+    }
+
+    private void initMode3Widgets() {
+        this.hideCraftingSlotsAndOutput();
+        if (!this.mode3DataRequested && this.minecraft != null && this.minecraft.getConnection() != null) {
+            PacketDistributor.sendToServer(new ModMessages.RequestMode4DataPacket(), new CustomPacketPayload[0]);
+            this.mode3DataRequested = true;
+        }
+        this.mode3BtnSave = Button.builder(Component.literal("保存交易"), this::onMode3Save).pos(this.leftPos + 8, this.topPos + 12).size(58, 16).build();
+        this.mode3BtnDelete = Button.builder(Component.literal("删除编号"), this::onMode3Delete).pos(this.leftPos + 8, this.topPos + 31).size(58, 16).build();
+        this.mode3BtnConfig = Button.builder(Component.literal("打开目录"), this::onMode3Config).pos(this.leftPos + 8, this.topPos + 50).size(58, 16).build();
+        this.mode3BtnClearExisting = Button.builder(Component.literal(this.mode3ClearExisting ? "☑ 覆盖原交易" : "☐ 覆盖原交易"), b -> {
+            this.mode3ClearExisting = !this.mode3ClearExisting;
+            b.setMessage(Component.literal(this.mode3ClearExisting ? "☑ 覆盖原交易" : "☐ 覆盖原交易"));
+        }).pos(this.leftPos + 8, this.topPos + 69).size(78, 16).build();
+        this.funcButtons.add(this.addRenderableWidget(this.mode3BtnSave));
+        this.funcButtons.add(this.addRenderableWidget(this.mode3BtnDelete));
+        this.funcButtons.add(this.addRenderableWidget(this.mode3BtnConfig));
+        this.funcButtons.add(this.addRenderableWidget(this.mode3BtnClearExisting));
+
+        this.mode3ProfessionDropdown = new DropdownWidget(this, this.leftPos + 94, this.topPos + 12, 122);
+        this.mode3ProfessionDropdown.setOptions(this.mode3ProfessionNames, this.mode3ProfessionIdx);
+        this.mode3ProfessionDropdown.setOnSelect(index -> {
+            this.mode3ProfessionIdx = Math.max(0, Math.min(index, Math.max(0, this.mode3ProfessionIds.size() - 1)));
+        });
+        this.addRenderableWidget(this.mode3ProfessionDropdown);
+
+        this.mode3LevelEdit = this.createMode3Edit(this.leftPos + 224, this.topPos + 12, 24, String.valueOf(this.mode3Level), "\\d{0,1}", v -> this.mode3Level = Math.clamp(parseInt(v, 1), 1, 5));
+        this.mode3Cost1CountEdit = this.createMode3Edit(this.leftPos + 118, this.topPos + 40, 28, String.valueOf(this.mode3Cost1Count), "\\d{0,2}", v -> this.mode3Cost1Count = Math.clamp(parseInt(v, 1), 1, 64));
+        this.mode3Cost2CountEdit = this.createMode3Edit(this.leftPos + 118, this.topPos + 68, 28, String.valueOf(this.mode3Cost2Count), "\\d{0,2}", v -> this.mode3Cost2Count = Math.clamp(parseInt(v, 0), 0, 64));
+        this.mode3ResultCountEdit = this.createMode3Edit(this.leftPos + 118, this.topPos + 96, 28, String.valueOf(this.mode3ResultCount), "\\d{0,2}", v -> this.mode3ResultCount = Math.clamp(parseInt(v, 1), 1, 64));
+        this.mode3MaxUsesEdit = this.createMode3Edit(this.leftPos + 168, this.topPos + 96, 28, String.valueOf(this.mode3MaxUses), "\\d{0,4}", v -> this.mode3MaxUses = Math.clamp(parseInt(v, 12), 1, 9999));
+        this.mode3XpEdit = this.createMode3Edit(this.leftPos + 218, this.topPos + 96, 28, String.valueOf(this.mode3Xp), "\\d{0,4}", v -> this.mode3Xp = Math.clamp(parseInt(v, 2), 0, 9999));
+        this.mode3MultiplierEdit = this.createMode3Edit(this.leftPos + 168, this.topPos + 68, 42, String.valueOf(this.mode3PriceMultiplier), "\\d*\\.?\\d{0,3}", v -> this.mode3PriceMultiplier = Math.max(0.0f, parseFloat(v, 0.05f)));
+        this.mode3DeleteIndexEdit = this.createMode3Edit(this.leftPos + 168, this.topPos + 40, 42, String.valueOf(this.mode3DeleteIndex), "\\d{0,4}", v -> this.mode3DeleteIndex = Math.max(0, parseInt(v, 0)));
+    }
+
+    private EditBox createMode3Edit(int x, int y, int width, String value, String regex, java.util.function.IntConsumer consumer) {
+        EditBox box = new EditBox(this.font, x, y, width, 16, Component.empty());
+        box.setFilter(s -> s.isEmpty() || s.matches(regex));
+        box.setValue(value);
+        box.setResponder(s -> consumer.accept(parseInt(s, 0)));
+        this.addRenderableWidget(box);
+        return box;
+    }
+
+    private int parseInt(String value, int fallback) {
+        try { return value == null || value.isEmpty() ? fallback : Integer.parseInt(value); }
+        catch (Exception e) { return fallback; }
+    }
+
+    private float parseFloat(String value, float fallback) {
+        try { return value == null || value.isEmpty() ? fallback : Float.parseFloat(value); }
+        catch (Exception e) { return fallback; }
+    }
+
+    private void onMode3Save(Button button) {
+        if (this.mode3ProfessionIds.isEmpty() || this.mode3ProfessionIdx < 0 || this.mode3ProfessionIdx >= this.mode3ProfessionIds.size()) {
+            this.showStatus("没有可用的村民职业");
+            return;
+        }
+        String cost1 = this.getItemIdForTradeSlot(0);
+        String cost2 = this.getItemIdForTradeSlot(1);
+        String result = this.getItemIdForTradeSlot(81);
+        if (cost1.isEmpty() || result.isEmpty()) {
+            this.showStatus("请放入交易成本和结果物品");
+            return;
+        }
+        JsonObject json = new JsonObject();
+        json.addProperty("level", Math.clamp(this.mode3Level, 1, 5));
+        json.addProperty("cost1", cost1);
+        json.addProperty("cost1Count", Math.clamp(this.mode3Cost1Count, 1, 64));
+        if (!cost2.isEmpty() && this.mode3Cost2Count > 0) {
+            json.addProperty("cost2", cost2);
+            json.addProperty("cost2Count", Math.clamp(this.mode3Cost2Count, 1, 64));
+        }
+        json.addProperty("result", result);
+        json.addProperty("resultCount", Math.clamp(this.mode3ResultCount, 1, 64));
+        json.addProperty("maxUses", Math.clamp(this.mode3MaxUses, 1, 9999));
+        json.addProperty("xp", Math.clamp(this.mode3Xp, 0, 9999));
+        json.addProperty("priceMultiplier", Math.max(0.0f, this.mode3PriceMultiplier));
+        json.addProperty("clearExisting", this.mode3ClearExisting);
+        PacketDistributor.sendToServer(new ModMessages.SaveTradePacket(this.mode3ProfessionIds.get(this.mode3ProfessionIdx), json.toString()), new CustomPacketPayload[0]);
+        this.showStatus("交易已写入，执行 /reload 后生效");
+    }
+
+    private String getItemIdForTradeSlot(int slotIndex) {
+        ItemStack stack = this.menu.slots.get(slotIndex).getItem();
+        return stack.isEmpty() ? "" : BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+    }
+
+    private void onMode3Delete(Button button) {
+        if (this.mode3ProfessionIds.isEmpty() || this.mode3ProfessionIdx < 0 || this.mode3ProfessionIdx >= this.mode3ProfessionIds.size()) return;
+        PacketDistributor.sendToServer(new ModMessages.RequestDeleteTradePacket(
+                this.mode3ProfessionIds.get(this.mode3ProfessionIdx), this.mode3DeleteIndex), new CustomPacketPayload[0]);
+        this.showStatus("已请求删除交易编号 " + this.mode3DeleteIndex + "，执行 /reload 后生效");
+    }
+
+    private void onMode3Config(Button button) {
+        if (this.minecraft != null && this.minecraft.level != null) {
+            Util.getPlatform().openFile(new File(this.minecraft.level.getServer() == null
+                    ? "visualcrafting/trades" : "visualcrafting/trades"));
+        }
+    }
+
+    private void updateMode4Data(List<String> profNames, List<String> profIds,
+                                 List<String> mgmtProfNames, List<String> mgmtProfIds,
+                                 List<String> mgmtTradeLabels, List<Boolean> mgmtTradeDisabled) {
+        this.mode3ProfessionNames = new ArrayList<String>(profNames);
+        this.mode3ProfessionIds = new ArrayList<String>(profIds);
+        if (this.mode3ProfessionIds.isEmpty()) return;
+        this.mode3ProfessionIdx = Math.clamp(this.mode3ProfessionIdx, 0, this.mode3ProfessionIds.size() - 1);
+        if (this.mode3ProfessionDropdown != null) {
+            this.mode3ProfessionDropdown.setOptions(this.mode3ProfessionNames, this.mode3ProfessionIdx);
+        }
+    }
+
+    private void onSaveTradeResponse() {
+        this.showStatus("交易文件已保存。执行 /reload 后会重新注入村民交易。");
+    }
+
+    private void onDeleteTradeResponse() {
+        this.showStatus("交易文件已删除。执行 /reload 后会重新注入村民交易。");
     }
 
     private void initMode5Widgets() {
