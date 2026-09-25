@@ -1132,7 +1132,7 @@ public class ModMessages {
                         overrideFile = new File(dir, pool + "-" + index + ".json");
                     } else {
                         File dir = new File(new File(new File(worldDir, "visualcrafting"),
-                                "trade_overrides/villager"), profId);
+                                "trade_overrides/villager"), profileDirectoryId(profId));
                         dir.mkdirs();
                         overrideFile = new File(dir, level + "-" + index + ".json");
                     }
@@ -1144,8 +1144,7 @@ public class ModMessages {
                     return;
                 }
 
-                File tradesDir = new File(new File(worldDir, "visualcrafting"), "trades");
-                File profDir = new File(tradesDir, profId);
+                File profDir = getTradeProfessionDirectory(worldDir, profId, true);
                 profDir.mkdirs();
 
                 // 序号取现有最大编号 +1：删除中间的条目后不会重号、不会覆盖既有交易
@@ -1259,7 +1258,7 @@ public class ModMessages {
 
             try {
                 File worldDir = serverPlayer.server.getWorldPath(LevelResource.ROOT).toFile();
-                File profDir = new File(new File(new File(worldDir, "visualcrafting"), "trades"), profId);
+                File profDir = getTradeProfessionDirectory(worldDir, profId, false);
                 File[] files = profDir.listFiles((d, name) -> name.endsWith(".json"));
                 if (files != null) {
                     Arrays.sort(files, Comparator.comparingInt(ModMessages::tradeFileIndex)
