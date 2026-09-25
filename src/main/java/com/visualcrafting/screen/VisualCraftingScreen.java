@@ -5536,6 +5536,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
 
     private void initMode3Widgets() {
         this.hideCraftingSlotsAndOutput();
+        this.ensureMode3ProfessionDefaults();
         if (!this.mode3DataRequested && this.minecraft != null && this.minecraft.getConnection() != null) {
             PacketDistributor.sendToServer(new ModMessages.RequestMode4DataPacket(), new CustomPacketPayload[0]);
             this.mode3DataRequested = true;
@@ -5631,13 +5632,27 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         catch (Exception e) { return fallback; }
     }
 
-    private void requestMode3TradeList() {
-        if (this.minecraft == null || this.minecraft.getConnection() == null
-                || this.mode3ProfessionIds.isEmpty()
-                || this.mode3ProfessionIdx < 0
-                || this.mode3ProfessionIdx >= this.mode3ProfessionIds.size()) {
-            return;
+    private void ensureMode3ProfessionDefaults() {
+        if (!this.mode3ProfessionIds.isEmpty()) return;
+        this.mode3ProfessionIds = new ArrayList<String>(Arrays.asList(
+                "farmer", "fisherman", "shepherd", "fletcher", "librarian",
+                "cartographer", "cleric", "armorer", "weaponsmith", "toolsmith",
+                "butcher", "leatherworker", "mason", "stone_mason"
+        ));
+        this.mode3ProfessionNames = new ArrayList<String>(Arrays.asList(
+                "农民", "渔夫", "牧羊人", "制箭师", "图书管理员",
+                "制图师", "牧师", "盔甲匠", "武器匠", "工具匠",
+                "屠夫", "皮匠", "石匠", "石匠"
+        ));
+        this.mode3ProfessionIdx = Math.clamp(this.mode3ProfessionIdx, 0, this.mode3ProfessionIds.size() - 1);
+        if (this.mode3ProfessionDropdown != null) {
+            this.mode3ProfessionDropdown.setOptions(this.mode3ProfessionNames, this.mode3ProfessionIdx);
         }
+    }
+    private void requestMode3TradeList() {
+        if (this.minecraft == null || this.minecraft.getConnection() == null) return;
+        this.ensureMode3ProfessionDefaults();
+        if (this.mode3ProfessionIdx < 0 || this.mode3ProfessionIdx >= this.mode3ProfessionIds.size()) return;
         this.mode3TradeListRequested = true;
         PacketDistributor.sendToServer(new ModMessages.RequestTradeListPacket(
                 this.mode3ProfessionIds.get(this.mode3ProfessionIdx),
@@ -5706,8 +5721,14 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     private void updateMode4Data(List<String> profNames, List<String> profIds,
                                  List<String> mgmtProfNames, List<String> mgmtProfIds,
                                  List<String> mgmtTradeLabels, List<Boolean> mgmtTradeDisabled) {
-        this.mode3ProfessionNames = new ArrayList<String>(profNames);
-        this.mode3ProfessionIds = new ArrayList<String>(profIds);
+        if (profIds != null && !profIds.isEmpty()) {
+            this.mode3ProfessionNames = new ArrayList<String>(profNames);
+            this.mode3ProfessionIds = new ArrayList<String>(profIds);
+        } else {
+            this.mode3ProfessionNames.clear();
+            this.mode3ProfessionIds.clear();
+            this.ensureMode3ProfessionDefaults();
+        }
         if (this.mode3ProfessionIds.isEmpty()) return;
         this.mode3ProfessionIdx = Math.clamp(this.mode3ProfessionIdx, 0, this.mode3ProfessionIds.size() - 1);
         if (this.mode3ProfessionDropdown != null) {
