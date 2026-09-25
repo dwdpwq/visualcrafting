@@ -270,35 +270,37 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     float mode5PotionProbability = 0.0f;
     EditBox mode5ProbabilityEdit;
     int mode2OffsetX = 8;
-    // ===================== Mode 3: 绿宝石交易 =====================
+    // ===================== Mode 3: 村民交易 =====================
     List<String> mode3ProfessionNames = new ArrayList<String>();
     List<String> mode3ProfessionIds = new ArrayList<String>();
+    List<String> mode3LevelNames = new ArrayList<String>(Arrays.asList("1", "2", "3", "4", "5"));
+    List<String> mode3TradeLabels = new ArrayList<String>();
+    List<Integer> mode3TradeIndices = new ArrayList<Integer>();
     int mode3ProfessionIdx = 0;
     int mode3Level = 1;
+    int mode3LevelIdx = 0;
+    int mode3TradeIdx = 0;
     int mode3Cost1Count = 1;
     int mode3Cost2Count = 0;
     int mode3ResultCount = 1;
     int mode3MaxUses = 12;
     int mode3Xp = 2;
     float mode3PriceMultiplier = 0.05f;
-    boolean mode3ClearExisting = false;
-    boolean mode3OverrideExisting = false;
     int mode3DeleteIndex = 0;
     DropdownWidget mode3ProfessionDropdown;
+    DropdownWidget mode3LevelDropdown;
+    DropdownWidget mode3TradeDropdown;
     EditBox mode3Cost1CountEdit;
     EditBox mode3Cost2CountEdit;
     EditBox mode3ResultCountEdit;
-    EditBox mode3LevelEdit;
     EditBox mode3MaxUsesEdit;
     EditBox mode3XpEdit;
     EditBox mode3MultiplierEdit;
-    EditBox mode3DeleteIndexEdit;
     Button mode3BtnSave;
     Button mode3BtnDelete;
-    Button mode3BtnConfig;
-    Button mode3BtnClearExisting;
-    Button mode3BtnOverrideExisting;
+    Button mode3BtnClearLevel;
     boolean mode3DataRequested = false;
+    boolean mode3TradeListRequested = false;
     ItemStack mode5LastSlot0Item = ItemStack.EMPTY;
     Button mode5BtnSave;
     Button mode5BtnDelete;
@@ -2805,6 +2807,8 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             };
 
             case 3 -> new DropdownWidget[]{
+                    this.mode3TradeDropdown,
+                    this.mode3LevelDropdown,
                     this.mode3ProfessionDropdown
             };
 
@@ -3495,24 +3499,19 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     }
 
     protected void renderMode3Extras(GuiGraphics guiGraphics, int mouseX, int mouseY) {
-        int x = this.leftPos, y = this.topPos;
+        // 保持 1.7.11 的简洁 GUI：不再绘制“村民职业 / 等级 / 成本 A”等说明文字。
         this.renderSlotOutline(guiGraphics, 0);
         this.renderSlotOutline(guiGraphics, 1);
         this.renderSlotOutline(guiGraphics, 81);
-        guiGraphics.drawString(this.font, "村民职业", x + 94, y + 5, 0x404040, false);
-        guiGraphics.drawString(this.font, "等级", x + 224, y + 5, 0x606060, false);
-        guiGraphics.drawString(this.font, "成本 A", x + 58, y + 44, 0x404040, false);
-        guiGraphics.drawString(this.font, "成本 B", x + 58, y + 72, 0x606060, false);
-        guiGraphics.drawString(this.font, "结果", x + 58, y + 100, 0x404040, false);
-        guiGraphics.drawString(this.font, "删除编号", x + 112, y + 44, 0x606060, false);
-        guiGraphics.drawString(this.font, "倍率", x + 112, y + 72, 0x606060, false);
-        guiGraphics.drawString(this.font, "最大次数", x + 146, y + 100, 0x606060, false);
-        guiGraphics.drawString(this.font, "经验", x + 198, y + 100, 0x606060, false);
-        guiGraphics.drawString(this.font, "数量", x + 126, y + 44, 0x808080, false);
-        guiGraphics.drawString(this.font, "数量", x + 126, y + 72, 0x808080, false);
-        guiGraphics.drawString(this.font, "数量", x + 126, y + 100, 0x808080, false);
-        guiGraphics.drawString(this.font, "成本 A/B 为玩家支付物品，结果为玩家获得物品；通常使用绿宝石作为主要货币。", x + 58, y + 119, 0x707070, false);
-        guiGraphics.drawString(this.font, "绿宝石交易保存后使用 /reload；勾选“覆盖原交易”会清空当前等级的原有交易。", x + 58, y + 130, 0x707070, false);
+
+        // 数量 / 参数只保留必要的短标题，避免长段提示文字占据交易编辑区。
+        int x = this.leftPos;
+        int y = this.topPos;
+        guiGraphics.drawString(this.font, "×", x + 139, y + 43, 0x606060, false);
+        guiGraphics.drawString(this.font, "×", x + 139, y + 71, 0x606060, false);
+        guiGraphics.drawString(this.font, "×", x + 139, y + 99, 0x606060, false);
+        guiGraphics.drawString(this.font, "↻", x + 174, y + 99, 0x606060, false);
+        guiGraphics.drawString(this.font, "XP", x + 209, y + 99, 0x606060, false);
     }
 
     protected void renderMode5Extras(GuiGraphics guiGraphics, int mouseX, int mouseY) {
@@ -5541,42 +5540,74 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             PacketDistributor.sendToServer(new ModMessages.RequestMode4DataPacket(), new CustomPacketPayload[0]);
             this.mode3DataRequested = true;
         }
-        this.mode3BtnSave = Button.builder(Component.literal("保存绿宝石交易"), this::onMode3Save).pos(this.leftPos + 8, this.topPos + 12).size(58, 16).build();
-        this.mode3BtnDelete = Button.builder(Component.literal("删除编号"), this::onMode3Delete).pos(this.leftPos + 8, this.topPos + 31).size(58, 16).build();
-        this.mode3BtnConfig = Button.builder(Component.literal("打开目录"), this::onMode3Config).pos(this.leftPos + 8, this.topPos + 50).size(58, 16).build();
-        this.mode3BtnClearExisting = Button.builder(Component.literal(this.mode3ClearExisting ? "☑ 清空本级交易" : "☐ 清空本级交易"), b -> {
-            this.mode3ClearExisting = !this.mode3ClearExisting;
-            b.setMessage(Component.literal(this.mode3ClearExisting ? "☑ 清空本级交易" : "☐ 清空本级交易"));
-        }).pos(this.leftPos + 8, this.topPos + 69).size(78, 16).build();
-        this.mode3BtnOverrideExisting = Button.builder(Component.literal(this.mode3OverrideExisting ? "☑ 修改已有交易" : "☐ 新增交易"), b -> {
-            this.mode3OverrideExisting = !this.mode3OverrideExisting;
-            b.setMessage(Component.literal(this.mode3OverrideExisting ? "☑ 修改已有交易" : "☐ 新增交易"));
-        }).pos(this.leftPos + 8, this.topPos + 88).size(78, 16).build();
-        this.funcButtons.add(this.addRenderableWidget(this.mode3BtnSave));
-        this.funcButtons.add(this.addRenderableWidget(this.mode3BtnDelete));
-        this.funcButtons.add(this.addRenderableWidget(this.mode3BtnConfig));
-        this.funcButtons.add(this.addRenderableWidget(this.mode3BtnClearExisting));
-        this.funcButtons.add(this.addRenderableWidget(this.mode3BtnOverrideExisting));
 
-        this.mode3ProfessionDropdown = new DropdownWidget(this, this.leftPos + 94, this.topPos + 12, 122);
+        final int BUTTON_WIDTH = 78;
+        final int BUTTON_HEIGHT = 16;
+
+        // 左侧：职业 / 等级 / 当前交易，全部使用下拉框，不再占用额外文字说明。
+        this.mode3ProfessionDropdown = new DropdownWidget(this, this.leftPos + 8, this.topPos + 12, 78);
         this.mode3ProfessionDropdown.setOptions(this.mode3ProfessionNames, this.mode3ProfessionIdx);
         this.mode3ProfessionDropdown.setOnSelect(index -> {
             this.mode3ProfessionIdx = Math.max(0, Math.min(index, Math.max(0, this.mode3ProfessionIds.size() - 1)));
+            this.mode3TradeIdx = 0;
+            this.requestMode3TradeList();
         });
         this.addRenderableWidget(this.mode3ProfessionDropdown);
 
-        this.mode3LevelEdit = this.createMode3Edit(this.leftPos + 224, this.topPos + 12, 24, String.valueOf(this.mode3Level), "\\d{0,1}", v -> this.mode3Level = Math.clamp(parseInt(v, 1), 1, 5));
-        this.mode3Cost1CountEdit = this.createMode3Edit(this.leftPos + 118, this.topPos + 40, 28, String.valueOf(this.mode3Cost1Count), "\\d{0,2}", v -> this.mode3Cost1Count = Math.clamp(parseInt(v, 1), 1, 64));
-        this.mode3Cost2CountEdit = this.createMode3Edit(this.leftPos + 118, this.topPos + 68, 28, String.valueOf(this.mode3Cost2Count), "\\d{0,2}", v -> this.mode3Cost2Count = Math.clamp(parseInt(v, 0), 0, 64));
-        this.mode3ResultCountEdit = this.createMode3Edit(this.leftPos + 118, this.topPos + 96, 28, String.valueOf(this.mode3ResultCount), "\\d{0,2}", v -> this.mode3ResultCount = Math.clamp(parseInt(v, 1), 1, 64));
-        this.mode3MaxUsesEdit = this.createMode3Edit(this.leftPos + 168, this.topPos + 96, 28, String.valueOf(this.mode3MaxUses), "\\d{0,4}", v -> this.mode3MaxUses = Math.clamp(parseInt(v, 12), 1, 9999));
-        this.mode3XpEdit = this.createMode3Edit(this.leftPos + 218, this.topPos + 96, 28, String.valueOf(this.mode3Xp), "\\d{0,4}", v -> this.mode3Xp = Math.clamp(parseInt(v, 2), 0, 9999));
-        this.mode3MultiplierEdit = new EditBox(this.font, this.leftPos + 168, this.topPos + 68, 42, 16, Component.empty());
+        this.mode3LevelDropdown = new DropdownWidget(this, this.leftPos + 8, this.topPos + 31, 78);
+        this.mode3LevelDropdown.setOptions(this.mode3LevelNames, this.mode3LevelIdx);
+        this.mode3LevelDropdown.setOnSelect(index -> {
+            this.mode3LevelIdx = Math.max(0, Math.min(index, 4));
+            this.mode3Level = this.mode3LevelIdx + 1;
+            this.mode3TradeIdx = 0;
+            this.requestMode3TradeList();
+        });
+        this.addRenderableWidget(this.mode3LevelDropdown);
+
+        this.mode3TradeDropdown = new DropdownWidget(this, this.leftPos + 8, this.topPos + 50, 78);
+        this.mode3TradeDropdown.setOptions(this.mode3TradeLabels, this.mode3TradeIdx);
+        this.mode3TradeDropdown.setOnSelect(index -> {
+            this.mode3TradeIdx = Math.max(0, Math.min(index, Math.max(0, this.mode3TradeIndices.size() - 1)));
+            if (!this.mode3TradeIndices.isEmpty() && this.mode3TradeIdx < this.mode3TradeIndices.size()) {
+                this.mode3DeleteIndex = this.mode3TradeIndices.get(this.mode3TradeIdx);
+            }
+        });
+        this.addRenderableWidget(this.mode3TradeDropdown);
+
+        this.mode3BtnDelete = Button.builder(Component.literal("删除交易"), this::onMode3Delete)
+                .pos(this.leftPos + 8, this.topPos + 69).size(BUTTON_WIDTH, BUTTON_HEIGHT).build();
+        this.mode3BtnClearLevel = Button.builder(Component.literal("清空本级交易"), this::onMode3ClearLevel)
+                .pos(this.leftPos + 8, this.topPos + 88).size(BUTTON_WIDTH, BUTTON_HEIGHT).build();
+        this.mode3BtnSave = Button.builder(Component.literal("保存交易"), this::onMode3Save)
+                .pos(this.leftPos + 94, this.topPos + 12).size(BUTTON_WIDTH, BUTTON_HEIGHT).build();
+
+        this.funcButtons.add(this.addRenderableWidget(this.mode3BtnDelete));
+        this.funcButtons.add(this.addRenderableWidget(this.mode3BtnClearLevel));
+        this.funcButtons.add(this.addRenderableWidget(this.mode3BtnSave));
+
+        this.mode3Cost1CountEdit = this.createMode3Edit(this.leftPos + 154, this.topPos + 40, 28,
+                String.valueOf(this.mode3Cost1Count), "\\d{0,2}",
+                v -> this.mode3Cost1Count = Math.clamp(parseInt(v, 1), 1, 64));
+        this.mode3Cost2CountEdit = this.createMode3Edit(this.leftPos + 154, this.topPos + 68, 28,
+                String.valueOf(this.mode3Cost2Count), "\\d{0,2}",
+                v -> this.mode3Cost2Count = Math.clamp(parseInt(v, 0), 0, 64));
+        this.mode3ResultCountEdit = this.createMode3Edit(this.leftPos + 154, this.topPos + 96, 28,
+                String.valueOf(this.mode3ResultCount), "\\d{0,2}",
+                v -> this.mode3ResultCount = Math.clamp(parseInt(v, 1), 1, 64));
+        this.mode3MaxUsesEdit = this.createMode3Edit(this.leftPos + 188, this.topPos + 96, 28,
+                String.valueOf(this.mode3MaxUses), "\\d{0,4}",
+                v -> this.mode3MaxUses = Math.clamp(parseInt(v, 12), 1, 9999));
+        this.mode3XpEdit = this.createMode3Edit(this.leftPos + 222, this.topPos + 96, 28,
+                String.valueOf(this.mode3Xp), "\\d{0,4}",
+                v -> this.mode3Xp = Math.clamp(parseInt(v, 2), 0, 9999));
+        this.mode3MultiplierEdit = new EditBox(this.font, this.leftPos + 188, this.topPos + 68, 34, 16, Component.empty());
         this.mode3MultiplierEdit.setFilter(s -> s.isEmpty() || s.matches("\\d*\\.?\\d{0,3}"));
         this.mode3MultiplierEdit.setValue(String.valueOf(this.mode3PriceMultiplier));
         this.mode3MultiplierEdit.setResponder(s -> this.mode3PriceMultiplier = Math.max(0.0f, parseFloat(s, 0.05f)));
         this.addRenderableWidget(this.mode3MultiplierEdit);
-        this.mode3DeleteIndexEdit = this.createMode3Edit(this.leftPos + 168, this.topPos + 40, 42, String.valueOf(this.mode3DeleteIndex), "\\d{0,4}", v -> this.mode3DeleteIndex = Math.max(0, parseInt(v, 0)));
+
+        // 初次打开界面时立即同步当前职业/等级的交易列表。
+        this.requestMode3TradeList();
     }
 
     private EditBox createMode3Edit(int x, int y, int width, String value, String regex, java.util.function.IntConsumer consumer) {
@@ -5598,8 +5629,22 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         catch (Exception e) { return fallback; }
     }
 
+    private void requestMode3TradeList() {
+        if (this.minecraft == null || this.minecraft.getConnection() == null
+                || this.mode3ProfessionIds.isEmpty()
+                || this.mode3ProfessionIdx < 0
+                || this.mode3ProfessionIdx >= this.mode3ProfessionIds.size()) {
+            return;
+        }
+        this.mode3TradeListRequested = true;
+        PacketDistributor.sendToServer(new ModMessages.RequestTradeListPacket(
+                this.mode3ProfessionIds.get(this.mode3ProfessionIdx),
+                Math.clamp(this.mode3Level, 1, 5)), new CustomPacketPayload[0]);
+    }
+
     private void onMode3Save(Button button) {
-        if (this.mode3ProfessionIds.isEmpty() || this.mode3ProfessionIdx < 0 || this.mode3ProfessionIdx >= this.mode3ProfessionIds.size()) {
+        if (this.mode3ProfessionIds.isEmpty() || this.mode3ProfessionIdx < 0
+                || this.mode3ProfessionIdx >= this.mode3ProfessionIds.size()) {
             this.showStatus("没有可用的村民职业");
             return;
         }
@@ -5610,6 +5655,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             this.showStatus("请放入交易成本和结果物品");
             return;
         }
+
         JsonObject json = new JsonObject();
         json.addProperty("level", Math.clamp(this.mode3Level, 1, 5));
         json.addProperty("cost1", cost1);
@@ -5623,15 +5669,9 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         json.addProperty("maxUses", Math.clamp(this.mode3MaxUses, 1, 9999));
         json.addProperty("xp", Math.clamp(this.mode3Xp, 0, 9999));
         json.addProperty("priceMultiplier", Math.max(0.0f, this.mode3PriceMultiplier));
-        json.addProperty("clearExisting", this.mode3ClearExisting);
-        json.addProperty("override", this.mode3OverrideExisting);
-        if (this.mode3OverrideExisting) {
-            json.addProperty("overrideIndex", Math.max(0, this.mode3DeleteIndex));
-        }
-        PacketDistributor.sendToServer(new ModMessages.SaveTradePacket(this.mode3ProfessionIds.get(this.mode3ProfessionIdx), json.toString()), new CustomPacketPayload[0]);
-        this.showStatus(this.mode3OverrideExisting
-                ? "已有交易修改已保存，执行 /reload 后生效"
-                : "绿宝石交易已保存，执行 /reload 后生效");
+
+        PacketDistributor.sendToServer(new ModMessages.SaveTradePacket(
+                this.mode3ProfessionIds.get(this.mode3ProfessionIdx), json.toString()), new CustomPacketPayload[0]);
     }
 
     private String getItemIdForTradeSlot(int slotIndex) {
@@ -5640,18 +5680,25 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     }
 
     private void onMode3Delete(Button button) {
-        if (this.mode3ProfessionIds.isEmpty() || this.mode3ProfessionIdx < 0 || this.mode3ProfessionIdx >= this.mode3ProfessionIds.size()) return;
+        if (this.mode3ProfessionIds.isEmpty() || this.mode3TradeIndices.isEmpty()
+                || this.mode3TradeIdx < 0 || this.mode3TradeIdx >= this.mode3TradeIndices.size()) {
+            this.showStatus("没有可删除的交易");
+            return;
+        }
+        this.mode3DeleteIndex = this.mode3TradeIndices.get(this.mode3TradeIdx);
         PacketDistributor.sendToServer(new ModMessages.RequestDeleteTradePacket(
-                this.mode3ProfessionIds.get(this.mode3ProfessionIdx), this.mode3DeleteIndex), new CustomPacketPayload[0]);
-        this.showStatus("已请求删除绿宝石交易编号 " + this.mode3DeleteIndex + "，执行 /reload 后生效");
+                this.mode3ProfessionIds.get(this.mode3ProfessionIdx),
+                this.mode3DeleteIndex), new CustomPacketPayload[0]);
     }
 
-    private void onMode3Config(Button button) {
-        String prof = this.mode3ProfessionIds.isEmpty() || this.mode3ProfessionIdx >= this.mode3ProfessionIds.size()
-                ? "<profession>" : this.mode3ProfessionIds.get(this.mode3ProfessionIdx);
-        this.showStatus(this.mode3OverrideExisting
-                ? "已有交易配置：世界目录/visualcrafting/trade_overrides/"
-                : "新增交易配置：世界目录/visualcrafting/trades/" + prof + "/");
+    private void onMode3ClearLevel(Button button) {
+        if (this.mode3ProfessionIds.isEmpty() || this.mode3ProfessionIdx < 0
+                || this.mode3ProfessionIdx >= this.mode3ProfessionIds.size()) {
+            return;
+        }
+        PacketDistributor.sendToServer(new ModMessages.ClearTradeLevelPacket(
+                this.mode3ProfessionIds.get(this.mode3ProfessionIdx),
+                Math.clamp(this.mode3Level, 1, 5)), new CustomPacketPayload[0]);
     }
 
     private void updateMode4Data(List<String> profNames, List<String> profIds,
@@ -5664,14 +5711,44 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         if (this.mode3ProfessionDropdown != null) {
             this.mode3ProfessionDropdown.setOptions(this.mode3ProfessionNames, this.mode3ProfessionIdx);
         }
+        if (this.mode3LevelDropdown != null) {
+            this.mode3LevelIdx = Math.clamp(this.mode3Level - 1, 0, 4);
+            this.mode3LevelDropdown.setOptions(this.mode3LevelNames, this.mode3LevelIdx);
+        }
+        this.requestMode3TradeList();
+    }
+
+    private void updateMode3TradeList(String profId, int level, List<String> labels, List<Integer> indices) {
+        if (this.mode3ProfessionIds.isEmpty()
+                || this.mode3ProfessionIdx < 0
+                || this.mode3ProfessionIdx >= this.mode3ProfessionIds.size()) {
+            return;
+        }
+        String currentProf = this.mode3ProfessionIds.get(this.mode3ProfessionIdx);
+        if (!Objects.equals(currentProf, profId) || this.mode3Level != level) return;
+
+        this.mode3TradeLabels = new ArrayList<String>(labels);
+        this.mode3TradeIndices = new ArrayList<Integer>(indices);
+        this.mode3TradeIdx = Math.clamp(this.mode3TradeIdx, 0, Math.max(0, this.mode3TradeLabels.size() - 1));
+        if (this.mode3TradeDropdown != null) {
+            List<String> display = this.mode3TradeLabels.isEmpty()
+                    ? new ArrayList<String>(List.of("无交易"))
+                    : this.mode3TradeLabels;
+            this.mode3TradeDropdown.setOptions(display, this.mode3TradeLabels.isEmpty() ? 0 : this.mode3TradeIdx);
+        }
+        if (!this.mode3TradeIndices.isEmpty() && this.mode3TradeIdx < this.mode3TradeIndices.size()) {
+            this.mode3DeleteIndex = this.mode3TradeIndices.get(this.mode3TradeIdx);
+        }
     }
 
     private void onSaveTradeResponse() {
-        this.showStatus("绿宝石交易文件已保存。执行 /reload 后会重新注入交易。");
+        this.showStatus("交易已保存");
+        this.requestMode3TradeList();
     }
 
     private void onDeleteTradeResponse() {
-        this.showStatus("绿宝石交易文件已删除。执行 /reload 后会重新注入交易。");
+        this.showStatus("交易已删除");
+        this.requestMode3TradeList();
     }
 
     private void initMode5Widgets() {
