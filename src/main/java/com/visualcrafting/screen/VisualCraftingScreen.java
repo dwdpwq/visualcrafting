@@ -750,6 +750,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         // KubeJS 不使用 CRT 的 5x5/7x7/9x9 等级；切换格式时强制回到 3x3。
         // 同时同步菜单与服务端方块实体，避免“CRT 终极 -> KubeJS 仍保持 9x9”。
         this.tier = 0;
+        this.menu.setTier(0);
         this.menu.updateSlotPositions(0);
         PacketDistributor.sendToServer(new ModMessages.FormatUpdatePacket(this.menu.blockPos, this.format), new CustomPacketPayload[0]);
         PacketDistributor.sendToServer(new ModMessages.TierUpdatePacket(this.menu.blockPos, 0), new CustomPacketPayload[0]);
@@ -2272,6 +2273,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
 
         // 任意标签页切换都回到 3x3；9x9 等 CRT 网格不会残留到下一标签页。
         this.tier = 0;
+        this.menu.setTier(0);
         this.menu.updateSlotPositions(0);
         PacketDistributor.sendToServer(new ModMessages.TierUpdatePacket(this.menu.blockPos, 0), new CustomPacketPayload[0]);
         for (int i = 9; i < 81; ++i) {
