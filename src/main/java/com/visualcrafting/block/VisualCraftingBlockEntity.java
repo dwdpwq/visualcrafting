@@ -31,13 +31,15 @@ public class VisualCraftingBlockEntity extends BlockEntity {
     public static final int MODE_CRAFTING = 0;
     public static final int MODE_INFUSING = 1;
     public static final int MODE_TRADE = 2;
+    /** 绿宝石标签页：村民交易编辑。 */
+    public static final int MODE_VILLAGER_TRADE = 3;
     public static final int MODE_FOOD = 5;
     public static final int MODE_NAME = 6;
     public static final int MODE_CREATE = 7;
     public static final int MODE_ENHANCE = 8;
     /** 界面实际使用的合法模式；历史遗留的 3 / 4 为空洞值，一律视为非法。 */
     private static final int[] VALID_MODES = {
-            MODE_CRAFTING, MODE_INFUSING, MODE_TRADE, MODE_FOOD, MODE_NAME, MODE_CREATE, MODE_ENHANCE
+            MODE_CRAFTING, MODE_INFUSING, MODE_TRADE, MODE_VILLAGER_TRADE, MODE_FOOD, MODE_NAME, MODE_CREATE, MODE_ENHANCE
     };
 
     /** 模式是否为界面支持的合法值（3 / 4 等历史遗留值返回 false）。 */
