@@ -320,7 +320,16 @@ public final class VisualCraftingTradeHandler {
         static TradeDefinition fromJson(JsonObject json) {
             String cost1 = string(json, "cost1");
             String result = string(json, "result");
-            if (cost1.isEmpty() || result.isEmpty()) return null;
+            boolean clearExisting = json.has("clearExisting") && json.get("clearExisting").getAsBoolean();
+
+            // “clear-<level>.json” 是仅用于清空原有本级交易的持久化标记，
+            // 不包含 cost/result 时仍然必须被加载并参与 clearLevels。
+            if (cost1.isEmpty() || result.isEmpty()) {
+                if (!clearExisting) return null;
+                int level = clamp(integer(json, "level", 1), 1, 5);
+                return new TradeDefinition(level, "", 0, "", 0, "", 0,
+                        1, 0, 0.05f, true);
+            }
 
             int level = clamp(integer(json, "level", 1), 1, 5);
             int cost1Count = clamp(integer(json, "cost1Count", 1), 1, 64);
@@ -338,8 +347,7 @@ public final class VisualCraftingTradeHandler {
             }
 
             return new TradeDefinition(level, cost1, cost1Count, cost2, cost2Count,
-                    result, resultCount, maxUses, xp, multiplier,
-                    json.has("clearExisting") && json.get("clearExisting").getAsBoolean());
+                    result, resultCount, maxUses, xp, multiplier, clearExisting);
         }
 
         private static String string(JsonObject json, String key) {
