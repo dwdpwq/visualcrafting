@@ -746,11 +746,21 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
 
     private void onFormatToggle(Button button) {
         this.format = 1 - this.format;
+
+        // KubeJS 不使用 CRT 的 5x5/7x7/9x9 等级；切换格式时强制回到 3x3。
+        // 同时同步菜单与服务端方块实体，避免“CRT 终极 -> KubeJS 仍保持 9x9”。
+        this.tier = 0;
+        this.menu.updateSlotPositions(0);
         PacketDistributor.sendToServer(new ModMessages.FormatUpdatePacket(this.menu.blockPos, this.format), new CustomPacketPayload[0]);
+        PacketDistributor.sendToServer(new ModMessages.TierUpdatePacket(this.menu.blockPos, 0), new CustomPacketPayload[0]);
+
         button.setMessage(Component.literal(this.format == 0 ? "KubeJS" : "CRT"));
         this.tierButtons.forEach(b -> {
             b.visible = this.format != 0;
         });
+
+        this.updateGuiSize();
+        this.rebuildWidgets();
     }
 
     private void onTier(int tierValue) {
@@ -2259,10 +2269,17 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
 
         ItemStack itemStack = this.menu.slots.get(81).getItem().copy();
         PacketDistributor.sendToServer(new ModMessages.ModeUpdatePacket(this.menu.blockPos, newMode), new CustomPacketPayload[0]);
-        this.markedContainer = ItemStack.EMPTY;
-        this.readBEState();
-        this.mode = newMode;
+
+        // 任意标签页切换都回到 3x3；9x9 等 CRT 网格不会残留到下一标签页。
         this.tier = 0;
+        this.menu.updateSlotPositions(0);
+        PacketDistributor.sendToServer(new ModMessages.TierUpdatePacket(this.menu.blockPos, 0), new CustomPacketPayload[0]);
+        for (int i = 9; i < 81; ++i) {
+            this.menu.slots.get(i).set(ItemStack.EMPTY);
+        }
+
+        this.markedContainer = ItemStack.EMPTY;
+        this.mode = newMode;
         this.loadOffsets();
         this.updateGuiSize();
         this.rebuildWidgets();
@@ -2681,9 +2698,8 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         if (this.mode == 5 && button == 0) {
             int ml = this.leftPos;
             int mt = this.topPos;
-            String infiniteLabel = Component.translatable("gui.visualcrafting.mode5.label.infinite").getString();
             int infiniteX = ml + 173;
-            int infiniteW = 12 + this.font.width(infiniteLabel);
+            int infiniteW = 14;
             if (mouseX >= (double)infiniteX && mouseX < (double)(infiniteX + infiniteW) && mouseY >= (double)(mt + 44) && mouseY < (double)(mt + 54)) {
                 this.mode5DurationInfinite = !this.mode5DurationInfinite;
                 if (this.mode5DurationEdit != null) {
@@ -3063,6 +3079,8 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         super.onClose();
     }
 
+    private static final int GUI_OFFSETS_VERSION = 2;
+
     private void loadOffsets() {
         File file = new File("config/visualcrafting/gui_offsets.properties");
         if (!file.exists()) {
@@ -3077,6 +3095,14 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
                 Properties properties = new Properties();
                 try (FileInputStream fileInputStream = new FileInputStream(file);){
                     properties.load(fileInputStream);
+                }
+
+                // 旧版调试器保存过的偏移可能把文字、输入框和物品图标整体拉开。
+                // 没有当前版本标记时直接恢复代码内的标准坐标，并写回新版本配置。
+                int version = Integer.parseInt(properties.getProperty("layoutVersion", "0"));
+                if (version != GUI_OFFSETS_VERSION) {
+                    this.saveOffsets();
+                    return;
                 }
 
                 this.btnOffsetX = Integer.parseInt(properties.getProperty("btnOffsetX", "6"));
@@ -3144,6 +3170,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
 
         try {
             Properties properties = new Properties();
+            properties.setProperty("layoutVersion", String.valueOf(GUI_OFFSETS_VERSION));
             properties.setProperty("btnOffsetX", String.valueOf(this.btnOffsetX));
             properties.setProperty("btnOffsetY", String.valueOf(this.btnOffsetY));
             properties.setProperty("gridOffsetX", String.valueOf(this.gridOffsetX));
@@ -3502,8 +3529,8 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         this.drawWrapped(guiGraphics, this.font, Component.translatable("gui.visualcrafting.mode5.label.return_item"), gl + 63, gt + 43, 58, 4210752);
         // Duration indicator
         this.drawWrapped(guiGraphics, this.font, Component.translatable("gui.visualcrafting.mode5.label.duration"), gl + 116, gt + 43, 55, 4210752);
-        String infiniteLabel = Component.translatable("gui.visualcrafting.mode5.label.infinite").getString();
-        String durationValue = (this.mode5DurationInfinite ? "☑ " : "☐ ") + infiniteLabel;
+        // 药效期后不再显示额外文字；仅保留紧凑的无限时长开关。
+        String durationValue = this.mode5DurationInfinite ? "☑" : "☐";
         guiGraphics.drawString(this.font, durationValue, gl + 173, gt + 43, 4210752);
         // Eat time and always edible
         String eatTimeText = Component.translatable("gui.visualcrafting.label.eat_time").getString();
