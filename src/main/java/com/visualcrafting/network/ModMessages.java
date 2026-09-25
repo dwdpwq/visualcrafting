@@ -1051,9 +1051,21 @@ public class ModMessages {
                 File[] tradeDirs = tradesDir.listFiles(File::isDirectory);
                 if (tradeDirs != null) {
                     for (File dir : tradeDirs) {
-                        if (!profIds.contains(dir.getName())) {
-                            profIds.add(dir.getName());
-                            profNames.add(dir.getName());
+                        String dirName = dir.getName();
+                        // 新版命名空间目录：examplemod__alchemist -> examplemod:alchemist。
+                        if (dirName.contains("__")) {
+                            String decodedId = dirName.replaceFirst("__", ":");
+                            if (!profIds.contains(decodedId)) {
+                                profIds.add(decodedId);
+                                profNames.add(decodedId);
+                            }
+                            continue;
+                        }
+                        // Vanilla 旧版目录（farmer/librarian/...）已由注册表返回，不重复显示。
+                        if (profIds.contains("minecraft:" + dirName)) continue;
+                        if (!profIds.contains(dirName)) {
+                            profIds.add(dirName);
+                            profNames.add(dirName);
                         }
                     }
                 }
