@@ -5565,7 +5565,9 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         this.addRenderableWidget(this.mode3LevelDropdown);
 
         this.mode3TradeDropdown = new DropdownWidget(this, this.leftPos + 8, this.topPos + 50, 78);
-        this.mode3TradeDropdown.setOptions(this.mode3TradeLabels, this.mode3TradeIdx);
+        this.mode3TradeDropdown.setOptions(
+                this.mode3TradeLabels.isEmpty() ? new ArrayList<String>(List.of("无交易")) : this.mode3TradeLabels,
+                this.mode3TradeLabels.isEmpty() ? 0 : this.mode3TradeIdx);
         this.mode3TradeDropdown.setOnSelect(index -> {
             this.mode3TradeIdx = Math.max(0, Math.min(index, Math.max(0, this.mode3TradeIndices.size() - 1)));
             if (!this.mode3TradeIndices.isEmpty() && this.mode3TradeIdx < this.mode3TradeIndices.size()) {
