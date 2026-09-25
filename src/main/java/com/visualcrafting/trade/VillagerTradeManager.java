@@ -14,6 +14,8 @@ import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.common.BasicItemListing;
 import net.neoforged.neoforge.event.village.VillagerTradesEvent;
+import net.neoforged.neoforge.server.ServerLifecycleHooks;
+import net.minecraft.world.level.storage.LevelResource;
 
 import java.io.File;
 import java.nio.charset.StandardCharsets;
@@ -55,9 +57,11 @@ public final class VillagerTradeManager {
         ResourceLocation professionId = BuiltInRegistries.VILLAGER_PROFESSION.getKey(event.getType());
         if (professionId == null) return;
 
-        File root = new File("visualcrafting/trades/" + professionId.getNamespace() + "_" + professionId.getPath());
+        File worldRoot = ServerLifecycleHooks.getCurrentServer() == null ? null : ServerLifecycleHooks.getCurrentServer().getWorldPath(LevelResource.ROOT).toFile();
+        if (worldRoot == null) return;
+        File root = new File(worldRoot, "visualcrafting/trades/" + professionId.getNamespace() + "_" + professionId.getPath());
         // 兼容 GUI 使用的旧目录命名：minecraft:farmer -> farmer
-        File legacyRoot = new File("visualcrafting/trades/" + professionId.getPath());
+        File legacyRoot = new File(worldRoot, "visualcrafting/trades/" + professionId.getPath());
         File dir = root.isDirectory() ? root : legacyRoot;
         if (!dir.isDirectory()) return;
 
