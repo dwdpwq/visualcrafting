@@ -5605,10 +5605,9 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     }
 
     private void onMode3Config(Button button) {
-        if (this.minecraft != null && this.minecraft.level != null) {
-            Util.getPlatform().openFile(new File(this.minecraft.level.getServer() == null
-                    ? "visualcrafting/trades" : "visualcrafting/trades"));
-        }
+        String prof = this.mode3ProfessionIds.isEmpty() || this.mode3ProfessionIdx >= this.mode3ProfessionIds.size()
+                ? "<profession>" : this.mode3ProfessionIds.get(this.mode3ProfessionIdx);
+        this.showStatus("服务器交易文件：世界目录/visualcrafting/trades/" + prof + "/");
     }
 
     private void updateMode4Data(List<String> profNames, List<String> profIds,
