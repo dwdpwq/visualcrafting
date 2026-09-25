@@ -282,6 +282,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     int mode3Xp = 2;
     float mode3PriceMultiplier = 0.05f;
     boolean mode3ClearExisting = false;
+    boolean mode3OverrideExisting = false;
     int mode3DeleteIndex = 0;
     DropdownWidget mode3ProfessionDropdown;
     EditBox mode3Cost1CountEdit;
@@ -296,6 +297,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     Button mode3BtnDelete;
     Button mode3BtnConfig;
     Button mode3BtnClearExisting;
+    Button mode3BtnOverrideExisting;
     boolean mode3DataRequested = false;
     ItemStack mode5LastSlot0Item = ItemStack.EMPTY;
     Button mode5BtnSave;
@@ -5513,14 +5515,19 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         this.mode3BtnSave = Button.builder(Component.literal("保存绿宝石交易"), this::onMode3Save).pos(this.leftPos + 8, this.topPos + 12).size(58, 16).build();
         this.mode3BtnDelete = Button.builder(Component.literal("删除编号"), this::onMode3Delete).pos(this.leftPos + 8, this.topPos + 31).size(58, 16).build();
         this.mode3BtnConfig = Button.builder(Component.literal("打开目录"), this::onMode3Config).pos(this.leftPos + 8, this.topPos + 50).size(58, 16).build();
-        this.mode3BtnClearExisting = Button.builder(Component.literal(this.mode3ClearExisting ? "☑ 覆盖原交易" : "☐ 覆盖原交易"), b -> {
+        this.mode3BtnClearExisting = Button.builder(Component.literal(this.mode3ClearExisting ? "☑ 清空本级交易" : "☐ 清空本级交易"), b -> {
             this.mode3ClearExisting = !this.mode3ClearExisting;
-            b.setMessage(Component.literal(this.mode3ClearExisting ? "☑ 覆盖原交易" : "☐ 覆盖原交易"));
+            b.setMessage(Component.literal(this.mode3ClearExisting ? "☑ 清空本级交易" : "☐ 清空本级交易"));
         }).pos(this.leftPos + 8, this.topPos + 69).size(78, 16).build();
+        this.mode3BtnOverrideExisting = Button.builder(Component.literal(this.mode3OverrideExisting ? "☑ 修改已有交易" : "☐ 新增交易"), b -> {
+            this.mode3OverrideExisting = !this.mode3OverrideExisting;
+            b.setMessage(Component.literal(this.mode3OverrideExisting ? "☑ 修改已有交易" : "☐ 新增交易"));
+        }).pos(this.leftPos + 8, this.topPos + 88).size(78, 16).build();
         this.funcButtons.add(this.addRenderableWidget(this.mode3BtnSave));
         this.funcButtons.add(this.addRenderableWidget(this.mode3BtnDelete));
         this.funcButtons.add(this.addRenderableWidget(this.mode3BtnConfig));
         this.funcButtons.add(this.addRenderableWidget(this.mode3BtnClearExisting));
+        this.funcButtons.add(this.addRenderableWidget(this.mode3BtnOverrideExisting));
 
         this.mode3ProfessionDropdown = new DropdownWidget(this, this.leftPos + 94, this.topPos + 12, 122);
         this.mode3ProfessionDropdown.setOptions(this.mode3ProfessionNames, this.mode3ProfessionIdx);
@@ -5588,8 +5595,14 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         json.addProperty("xp", Math.clamp(this.mode3Xp, 0, 9999));
         json.addProperty("priceMultiplier", Math.max(0.0f, this.mode3PriceMultiplier));
         json.addProperty("clearExisting", this.mode3ClearExisting);
+        json.addProperty("override", this.mode3OverrideExisting);
+        if (this.mode3OverrideExisting) {
+            json.addProperty("overrideIndex", Math.max(0, this.mode3DeleteIndex));
+        }
         PacketDistributor.sendToServer(new ModMessages.SaveTradePacket(this.mode3ProfessionIds.get(this.mode3ProfessionIdx), json.toString()), new CustomPacketPayload[0]);
-        this.showStatus("绿宝石交易已保存，执行 /reload 后生效");
+        this.showStatus(this.mode3OverrideExisting
+                ? "已有交易修改已保存，执行 /reload 后生效"
+                : "绿宝石交易已保存，执行 /reload 后生效");
     }
 
     private String getItemIdForTradeSlot(int slotIndex) {
@@ -5607,7 +5620,9 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     private void onMode3Config(Button button) {
         String prof = this.mode3ProfessionIds.isEmpty() || this.mode3ProfessionIdx >= this.mode3ProfessionIds.size()
                 ? "<profession>" : this.mode3ProfessionIds.get(this.mode3ProfessionIdx);
-        this.showStatus("服务器交易文件：世界目录/visualcrafting/trades/" + prof + "/");
+        this.showStatus(this.mode3OverrideExisting
+                ? "已有交易配置：世界目录/visualcrafting/trade_overrides/"
+                : "新增交易配置：世界目录/visualcrafting/trades/" + prof + "/");
     }
 
     private void updateMode4Data(List<String> profNames, List<String> profIds,
