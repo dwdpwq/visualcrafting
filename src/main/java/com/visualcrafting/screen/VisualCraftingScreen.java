@@ -5635,14 +5635,16 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     private void ensureMode3ProfessionDefaults() {
         if (!this.mode3ProfessionIds.isEmpty()) return;
         this.mode3ProfessionIds = new ArrayList<String>(Arrays.asList(
+                "minecraft:wandering_trader",
                 "farmer", "fisherman", "shepherd", "fletcher", "librarian",
                 "cartographer", "cleric", "armorer", "weaponsmith", "toolsmith",
-                "butcher", "leatherworker", "mason", "stone_mason"
+                "butcher", "leatherworker", "mason"
         ));
         this.mode3ProfessionNames = new ArrayList<String>(Arrays.asList(
+                "流浪商人",
                 "农民", "渔夫", "牧羊人", "制箭师", "图书管理员",
                 "制图师", "牧师", "盔甲匠", "武器匠", "工具匠",
-                "屠夫", "皮匠", "石匠", "石匠"
+                "屠夫", "皮匠", "石匠"
         ));
         this.mode3ProfessionIdx = Math.clamp(this.mode3ProfessionIdx, 0, this.mode3ProfessionIds.size() - 1);
         if (this.mode3ProfessionDropdown != null) {
@@ -5724,6 +5726,16 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         if (profIds != null && !profIds.isEmpty()) {
             this.mode3ProfessionNames = new ArrayList<String>(profNames);
             this.mode3ProfessionIds = new ArrayList<String>(profIds);
+
+            // 流浪商人不是 VillagerProfession，不会出现在职业注册表中；
+            // 固定插入到下拉框第一项，避免被运行时职业同步覆盖。
+            int wanderingIndex = this.mode3ProfessionIds.indexOf("minecraft:wandering_trader");
+            if (wanderingIndex >= 0) {
+                this.mode3ProfessionIds.remove(wanderingIndex);
+                this.mode3ProfessionNames.remove(wanderingIndex);
+            }
+            this.mode3ProfessionIds.add(0, "minecraft:wandering_trader");
+            this.mode3ProfessionNames.add(0, "流浪商人");
         } else {
             this.mode3ProfessionNames.clear();
             this.mode3ProfessionIds.clear();
