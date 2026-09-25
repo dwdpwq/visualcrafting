@@ -3481,7 +3481,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         guiGraphics.drawString(this.font, "数量", x + 126, y + 72, 0x808080, false);
         guiGraphics.drawString(this.font, "数量", x + 126, y + 100, 0x808080, false);
         guiGraphics.drawString(this.font, "成本 A/B 为玩家支付物品，结果为玩家获得物品；通常使用绿宝石作为主要货币。", x + 58, y + 119, 0x707070, false);
-        guiGraphics.drawString(this.font, "绿宝石交易保存后使用 /reload；勾选“覆盖原交易”会清空该职业的原有交易。", x + 58, y + 130, 0x707070, false);
+        guiGraphics.drawString(this.font, "绿宝石交易保存后使用 /reload；勾选“覆盖原交易”会清空当前等级的原有交易。", x + 58, y + 130, 0x707070, false);
     }
 
     protected void renderMode5Extras(GuiGraphics guiGraphics, int mouseX, int mouseY) {
