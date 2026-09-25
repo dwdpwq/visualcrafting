@@ -982,6 +982,12 @@ public class ModMessages {
                         }
                     }
                 }
+
+                // 统一入口：模式 3 也可以直接编辑流浪商人的普通/稀有交易池。
+                profIds.add("__wandering_generic__");
+                profNames.add("流浪商人 · 普通交易");
+                profIds.add("__wandering_rare__");
+                profNames.add("流浪商人 · 稀有交易");
             } catch (Exception e) {
                 System.err.println("[VisualCrafting] Failed to load mode4 data: " + e.getMessage());
             }
@@ -1021,6 +1027,36 @@ public class ModMessages {
 
             try {
                 File worldDir = serverPlayer.server.getWorldPath(LevelResource.ROOT).toFile();
+                JsonObject tradeJson = JsonParser.parseString(packet.tradeJson).getAsJsonObject();
+                boolean override = tradeJson.has("override") && tradeJson.get("override").getAsBoolean();
+
+                if (override) {
+                    int index = Math.max(0, tradeJson.has("overrideIndex")
+                            ? tradeJson.get("overrideIndex").getAsInt() : 0);
+                    int level = Math.clamp(tradeJson.has("level")
+                            ? tradeJson.get("level").getAsInt() : 1, 1, 5);
+
+                    File overrideFile;
+                    if ("__wandering_generic__".equals(profId) || "__wandering_rare__".equals(profId)) {
+                        String pool = "__wandering_generic__".equals(profId) ? "generic" : "rare";
+                        File dir = new File(new File(new File(worldDir, "visualcrafting"),
+                                "trade_overrides"), "wandering");
+                        dir.mkdirs();
+                        overrideFile = new File(dir, pool + "-" + index + ".json");
+                    } else {
+                        File dir = new File(new File(new File(worldDir, "visualcrafting"),
+                                "trade_overrides/villager"), profId);
+                        dir.mkdirs();
+                        overrideFile = new File(dir, level + "-" + index + ".json");
+                    }
+
+                    tradeJson.remove("override");
+                    tradeJson.remove("overrideIndex");
+                    Files.writeString(overrideFile.toPath(), GSON.toJson(tradeJson), StandardCharsets.UTF_8);
+                    PacketDistributor.sendToPlayer(serverPlayer, new SaveTradeResponsePacket());
+                    return;
+                }
+
                 File tradesDir = new File(new File(worldDir, "visualcrafting"), "trades");
                 File profDir = new File(tradesDir, profId);
                 profDir.mkdirs();
