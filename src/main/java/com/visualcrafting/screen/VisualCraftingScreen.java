@@ -3267,35 +3267,49 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     }
 
     void renderMode2Extras(GuiGraphics guiGraphics) {
-        // ===== Mode2 compact painting (baseline: bak_20260723_GUI_OK) =====
-        // Column headers: dimension/biome above dropdowns, layer above y-range edits
-        guiGraphics.drawString(this.font, Component.translatable("gui.visualcrafting.mode2.col.biome").getString(), this.leftPos + 67 + this.mode2OffsetX, this.topPos + 7, 0x404040, false);
-        guiGraphics.drawString(this.font, Component.translatable("gui.visualcrafting.mode2.col.layer").getString(), this.leftPos + 63 + this.mode2OffsetX, this.topPos + 106, 0x404040, false);
-        guiGraphics.drawString(this.font, "~", this.leftPos + 136 + this.mode2OffsetX, this.topPos + 106, 0xFFFFFF, false);
-        int invOffX = this.invLineOffsetX;
-        int invOffY = this.invLineOffsetY;
-        int slotX = this.leftPos + 71 + this.mode2OffsetX;
+        // ===== Mode2: compact vanilla-style mineral generation layout =====
+        // 只强化层级和对齐，不改变任何控件/槽位坐标。
+        int x = this.leftPos + this.mode2OffsetX;
+        int slotX = x + 71;
         int mineralY = this.topPos + 42;
         int byproductY = this.topPos + 70;
-        int labelX = slotX + invOffX - 11;
-        int labelStep = 9;
-        // Mineral row: vertical "矿/物" label, 18x18 slot outline, amount header, pct below slot
-        guiGraphics.drawString(this.font, Component.translatable("gui.visualcrafting.mode2.vert.ore.1").getString(), labelX, mineralY + invOffY + 1, 0x404040, false);
-        guiGraphics.drawString(this.font, Component.translatable("gui.visualcrafting.mode2.vert.ore.2").getString(), labelX, mineralY + invOffY + 1 + labelStep, 0x404040, false);
+        int contentLeft = x + 63;
+        int contentRight = x + 181;
+
+        // 两行轻量底线：把矿物/伴生矿、数量、概率组织成同一组，而不是堆叠独立方框。
+        guiGraphics.fill(contentLeft, this.topPos + 38, contentRight, this.topPos + 39, 0x40303030);
+        guiGraphics.fill(contentLeft, this.topPos + 66, contentRight, this.topPos + 67, 0x40303030);
+        guiGraphics.fill(contentLeft, this.topPos + 94, contentRight, this.topPos + 95, 0x40303030);
+
+        // 上方选择区标题。
+        guiGraphics.drawString(this.font, Component.translatable("gui.visualcrafting.mode2.col.biome").getString(),
+                x + 67, this.topPos + 7, 0x404040, false);
+
+        // 矿物 / 伴生矿：改为单行标签，避免原来的“矿 / 物”“伴 / 生”竖排。
+        guiGraphics.drawString(this.font, "矿物", x + 54, mineralY + 5, 0x404040, false);
+        guiGraphics.drawString(this.font, "伴生", x + 54, byproductY + 5, 0x606060, false);
+
         this.renderSlotOutline(guiGraphics, 0);
-        guiGraphics.drawString(this.font, Component.translatable("gui.visualcrafting.mode2.col.amount").getString(), this.leftPos + 91 + this.mode2OffsetX, this.topPos + 43, 0x404040, false);
-        String mineralPctText = this.mode2MineralPct + "%";
-        guiGraphics.drawString(this.font, mineralPctText, slotX + 9 - this.font.width(mineralPctText) / 2, this.topPos + 61, 0xFFFFFF, false);
-        guiGraphics.drawString(this.font, "~", this.leftPos + 136 + this.mode2OffsetX, this.topPos + 47, 0xFFFFFF, false);
-        // Byproduct row: vertical "伴/生" label, 18x18 slot outline, amount header, pct below slot
-        guiGraphics.drawString(this.font, Component.translatable("gui.visualcrafting.mode2.vert.by.1").getString(), labelX, byproductY + invOffY + 1, 0x404040, false);
-        guiGraphics.drawString(this.font, Component.translatable("gui.visualcrafting.mode2.vert.by.2").getString(), labelX, byproductY + invOffY + 1 + labelStep, 0x404040, false);
         this.renderSlotOutline(guiGraphics, 1);
-        guiGraphics.drawString(this.font, Component.translatable("gui.visualcrafting.mode2.col.amount").getString(), this.leftPos + 91 + this.mode2OffsetX, this.topPos + 77, 0x404040, false);
+
+        // 数量区：min ~ max，两个输入框本身负责数字编辑。
+        guiGraphics.drawString(this.font, "数量", x + 91, mineralY + 1, 0x606060, false);
+        guiGraphics.drawString(this.font, "数量", x + 91, byproductY + 1, 0x606060, false);
+        guiGraphics.drawString(this.font, "~", x + 136, mineralY + 4, 0x606060, false);
+        guiGraphics.drawString(this.font, "~", x + 136, byproductY + 4, 0x606060, false);
+
+        // 概率放在对应槽位下方，使用弱强调色，避免白色文字过于突兀。
+        String mineralPctText = this.mode2MineralPct + "%";
         String byproductPctText = this.mode2ByproductPct + "%";
-        guiGraphics.drawString(this.font, byproductPctText, slotX + 9 - this.font.width(byproductPctText) / 2, this.topPos + 88, 0xFFFFFF, false);
-        guiGraphics.drawString(this.font, "~", this.leftPos + 135 + this.mode2OffsetX, this.topPos + 80, 0xFFFFFF, false);
-        // 「禁止生成」的当前状态由按钮文案体现（已禁用时显示 mode2.ban_gen.done），见 updateMode2ButtonLabels
+        guiGraphics.drawString(this.font, mineralPctText,
+                slotX + 9 - this.font.width(mineralPctText) / 2, mineralY + 19, 0x606060, false);
+        guiGraphics.drawString(this.font, byproductPctText,
+                slotX + 9 - this.font.width(byproductPctText) / 2, byproductY + 19, 0x606060, false);
+
+        // 高度范围：明确左右两个输入框属于同一组。
+        guiGraphics.drawString(this.font, Component.translatable("gui.visualcrafting.mode2.col.layer").getString(),
+                x + 63, this.topPos + 106, 0x404040, false);
+        guiGraphics.drawString(this.font, "~", x + 136, this.topPos + 106, 0x606060, false);
     }
 
     private void syncMode5FromSlot0() {
