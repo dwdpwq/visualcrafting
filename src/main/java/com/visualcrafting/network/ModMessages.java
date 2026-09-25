@@ -241,7 +241,7 @@ public class ModMessages {
     private static File getTradeProfessionDirectory(File worldDir, String profId, boolean create) {
         File tradesRoot = new File(new File(worldDir, "visualcrafting"), "trades");
         File canonicalDir = new File(tradesRoot, profileDirectoryId(profId));
-        if (profId != null && profId.contains(":")) {
+        if (profId != null && profId.startsWith("minecraft:")) {
             File legacyDir = new File(tradesRoot, profId.substring(profId.indexOf(':') + 1));
             if (!canonicalDir.isDirectory() && legacyDir.isDirectory()) return legacyDir;
         }
