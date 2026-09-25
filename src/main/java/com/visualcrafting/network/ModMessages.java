@@ -960,12 +960,23 @@ public class ModMessages {
                     }
                 }
 
+                // 1.21.1 原生 VillagerTradesEvent 可以直接按注册表职业注入交易。
+                // GUI 因此始终列出当前运行时所有职业，包括其他模组注册的职业。
+                for (ResourceLocation id : BuiltInRegistries.VILLAGER_PROFESSION.keySet()) {
+                    String key = id.toString();
+                    String normalized = normalizeProfileId(key);
+                    if (!profIds.contains(normalized)) {
+                        profIds.add(normalized);
+                        profNames.add(key);
+                    }
+                }
+
+                // 兼容历史自定义目录：即使职业当前不在注册表，也不要让已有配置在 GUI 中消失。
                 File tradesDir = new File(vcDir, "trades");
                 File[] tradeDirs = tradesDir.listFiles(File::isDirectory);
                 if (tradeDirs != null) {
                     for (File dir : tradeDirs) {
-                        File[] tradeFiles = dir.listFiles((d, name) -> name.endsWith(".json"));
-                        if (tradeFiles != null && tradeFiles.length > 0) {
+                        if (!profIds.contains(dir.getName())) {
                             profIds.add(dir.getName());
                             profNames.add(dir.getName());
                         }
