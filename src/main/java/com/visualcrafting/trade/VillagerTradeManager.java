@@ -46,7 +46,9 @@ import java.util.List;
  *   "disabled": false
  * }
  */
-@EventBusSubscriber(modid = "visualcrafting", bus = EventBusSubscriber.Bus.GAME)
+// P0 修复：禁用旧版双订阅者，避免与 VisualCraftingTradeHandler(GAME bus) 对同一
+// VillagerTradesEvent 重复注入。保留源码与事件方法便于回滚；恢复时取消下行注释即可。
+// @EventBusSubscriber(modid = "visualcrafting", bus = EventBusSubscriber.Bus.GAME)
 public final class VillagerTradeManager {
     private static final Gson GSON = new GsonBuilder().create();
 

@@ -59,6 +59,8 @@ import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.nio.charset.StandardCharsets;
@@ -68,6 +70,8 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class ModMessages {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(ModMessages.class);
 
     // Packet type IDs
     public static final ResourceLocation ADD_RECIPE_ID =
@@ -212,13 +216,13 @@ public class ModMessages {
         if (vcBe.isRemoved()) return null;
         double distSqr = player.blockPosition().distSqr(pos);
         if (distSqr > (double) MAX_INTERACTION_DISTANCE * MAX_INTERACTION_DISTANCE) {
-            System.err.println("[VisualCrafting] Rejected packet: table out of range at " + pos);
+            LOGGER.error("[VisualCrafting] Rejected packet: table out of range at " + pos);
             return null;
         }
         // 归属校验：已有主人的工作台只允许主人操作，防止越权读写他人配方
         UUID owner = vcBe.getOwnerId();
         if (owner != null && !owner.equals(player.getUUID())) {
-            System.err.println("[VisualCrafting] Rejected packet: table at " + pos
+            LOGGER.error("[VisualCrafting] Rejected packet: table at " + pos
                     + " belongs to " + owner + ", sender=" + player.getUUID());
             return null;
         }
@@ -315,7 +319,7 @@ public class ModMessages {
             root.add("content", content);
             Files.writeString(pendingDir.resolve(fileName), GSON.toJson(root), StandardCharsets.UTF_8);
         } catch (Exception e) {
-            System.err.println("[VisualCrafting] 写入暂存配方失败: " + e.getMessage());
+            LOGGER.error("[VisualCrafting] 写入暂存配方失败: " + e.getMessage());
         }
     }
 
@@ -679,7 +683,7 @@ public class ModMessages {
 
             if (slot == null || current.isEmpty() || requested.isEmpty()) return;
             if (current.getItem() != requested.getItem() || current.getCount() != requested.getCount()) {
-                System.err.println("[VisualCrafting] Rejected Mode 8 packet: item identity/count changed");
+                LOGGER.error("[VisualCrafting] Rejected Mode 8 packet: item identity/count changed");
                 return;
             }
 
@@ -976,7 +980,7 @@ public class ModMessages {
                     }
                 }
             } catch (Exception e) {
-                System.err.println("[VisualCrafting] Failed to load dim/biome data on server: " + e.getMessage());
+                LOGGER.error("[VisualCrafting] Failed to load dim/biome data on server: " + e.getMessage());
             }
 
             DimensionBiomesData data = new DimensionBiomesData(dimIds, biomesByDim, allBiomes);
@@ -989,7 +993,7 @@ public class ModMessages {
                 File indexFile = new File(vcDir, "dim_biomes_index.json");
                 Files.writeString(indexFile.toPath(), data.toJson(), StandardCharsets.UTF_8);
             } catch (Exception e) {
-                System.err.println("[VisualCrafting] Failed to save dim/biome index: " + e.getMessage());
+                LOGGER.error("[VisualCrafting] Failed to save dim/biome index: " + e.getMessage());
             }
 
             PacketDistributor.sendToPlayer(serverPlayer, new SyncDimBiomesPacket(data));
@@ -1015,7 +1019,7 @@ public class ModMessages {
                 }
                 Files.writeString(cacheFile.toPath(), cacheData.toJson(), StandardCharsets.UTF_8);
             } catch (Exception e) {
-                System.err.println("[VisualCrafting] Failed to save dim/biome client cache: " + e.getMessage());
+                LOGGER.error("[VisualCrafting] Failed to save dim/biome client cache: " + e.getMessage());
             }
         });
     }
@@ -1095,7 +1099,7 @@ public class ModMessages {
                 profIds.add("__wandering_rare__");
                 profNames.add("流浪商人 · 稀有交易");
             } catch (Exception e) {
-                System.err.println("[VisualCrafting] Failed to load mode4 data: " + e.getMessage());
+                LOGGER.error("[VisualCrafting] Failed to load mode4 data: " + e.getMessage());
             }
 
             PacketDistributor.sendToPlayer(serverPlayer, new SyncMode4DataPacket(
@@ -1115,7 +1119,7 @@ public class ModMessages {
                             packet.profNames, packet.profIds, packet.mgmtProfNames, packet.mgmtProfIds,
                             packet.mgmtTradeLabels, packet.mgmtTradeDisabled);
                 } catch (Exception e) {
-                    System.err.println("[VisualCrafting] Client reflection handler failed: " + e.getClass().getSimpleName() + ": " + e.getMessage());
+                    LOGGER.error("[VisualCrafting] Client reflection handler failed: " + e.getClass().getSimpleName() + ": " + e.getMessage());
                 }
             }
         });
@@ -1127,7 +1131,7 @@ public class ModMessages {
             if (!(player instanceof ServerPlayer serverPlayer)) return;
             String profId = normalizeProfileId(packet.profId);
             if (!isValidProfileId(profId)) {
-                System.err.println("[VisualCrafting] Rejected trade save with invalid profile id: " + packet.profId);
+                LOGGER.error("[VisualCrafting] Rejected trade save with invalid profile id: " + packet.profId);
                 return;
             }
 
@@ -1162,6 +1166,8 @@ public class ModMessages {
                     tradeJson.remove("override");
                     tradeJson.remove("overrideIndex");
                     Files.writeString(overrideFile.toPath(), GSON.toJson(tradeJson), StandardCharsets.UTF_8);
+                    serverPlayer.displayClientMessage(
+                            Component.literal("已修改交易 #" + (index + 1)), false);
                     PacketDistributor.sendToPlayer(serverPlayer, new SaveTradeResponsePacket());
                     return;
                 }
@@ -1193,6 +1199,8 @@ public class ModMessages {
                         if (editFile.isFile()) {
                             tradeJson.remove("editIndex");
                             Files.writeString(editFile.toPath(), GSON.toJson(tradeJson), StandardCharsets.UTF_8);
+                            serverPlayer.displayClientMessage(
+                                    Component.literal("已修改交易 #" + (editIndex + 1)), false);
                             PacketDistributor.sendToPlayer(serverPlayer, new SaveTradeResponsePacket());
                             return;
                         }
@@ -1204,9 +1212,20 @@ public class ModMessages {
                 Files.writeString(tradeFile.toPath(), GSON.toJson(tradeJson), StandardCharsets.UTF_8);
 
                 // 自动 reload 已移除：脚本已写入，需手动执行 /reload 后生效
+                int tradeLevel = Math.clamp(tradeJson.has("level") ? tradeJson.get("level").getAsInt() : 1, 1, 5);
+                StringBuilder addedMsg = new StringBuilder("已添加交易 [Lv").append(tradeLevel).append("] ");
+                if (tradeJson.has("result")) {
+                    int rCount = tradeJson.has("resultCount") ? tradeJson.get("resultCount").getAsInt() : 1;
+                    addedMsg.append(rCount).append("x ").append(shortItemId(tradeJson.get("result").getAsString()));
+                } else {
+                    addedMsg.append("自定义交易");
+                }
+                serverPlayer.displayClientMessage(Component.literal(addedMsg.toString()), false);
                 PacketDistributor.sendToPlayer(serverPlayer, new SaveTradeResponsePacket());
             } catch (Exception e) {
-                System.err.println("[VisualCrafting] Failed to save trade: " + e.getMessage());
+                LOGGER.error("[VisualCrafting] Failed to save trade: " + e.getMessage());
+                serverPlayer.displayClientMessage(
+                        Component.literal("交易保存失败：" + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage())), false);
             }
         });
     }
@@ -1220,7 +1239,7 @@ public class ModMessages {
                             .getDeclaredMethod("onSaveTradeResponse");
                     method.invoke(vcScreen);
                 } catch (Exception e) {
-                    System.err.println("[VisualCrafting] Client reflection handler failed: " + e.getClass().getSimpleName() + ": " + e.getMessage());
+                    LOGGER.error("[VisualCrafting] Client reflection handler failed: " + e.getClass().getSimpleName() + ": " + e.getMessage());
                 }
             }
         });
@@ -1232,7 +1251,7 @@ public class ModMessages {
             if (!(player instanceof ServerPlayer serverPlayer)) return;
             String profId = normalizeProfileId(packet.profId);
             if (!isValidProfileId(profId)) {
-                System.err.println("[VisualCrafting] Rejected trade delete with invalid profile id: " + packet.profId);
+                LOGGER.error("[VisualCrafting] Rejected trade delete with invalid profile id: " + packet.profId);
                 return;
             }
 
@@ -1258,6 +1277,13 @@ public class ModMessages {
                         File f = new File(dir, level + "-" + runtimeIndex + ".json");
                         removedOverride = f.isFile() && f.delete();
                     }
+                    if (removedOverride) {
+                        serverPlayer.displayClientMessage(
+                                Component.literal("已删除交易 #" + (-packet.tradeIndex)), false);
+                    } else {
+                        serverPlayer.displayClientMessage(
+                                Component.literal("未找到交易 #" + (-packet.tradeIndex)), false);
+                    }
                     PacketDistributor.sendToPlayer(serverPlayer, new DeleteTradeResponsePacket());
                     return;
                 }
@@ -1266,25 +1292,31 @@ public class ModMessages {
 
                 boolean deleted = false;
                 File[] tradeFiles = profDir.listFiles((d, name) -> name.endsWith(".json"));
-                if (tradeFiles != null && tradeFiles.length > 0) {
-                    // 按数字编号升序，与 GUI 列表顺序一致
-                    Arrays.sort(tradeFiles, Comparator.comparingInt(ModMessages::tradeFileIndex)
-                            .thenComparing(File::getName));
-                    if (packet.tradeIndex >= 0 && packet.tradeIndex < tradeFiles.length) {
-                        deleted = tradeFiles[packet.tradeIndex].delete();
-                    } else {
-                        System.err.println("[VisualCrafting] Trade delete index out of range: index="
-                                + packet.tradeIndex + ", files=" + tradeFiles.length + ", profId=" + profId);
+                if (tradeFiles != null) {
+                    // 按文件名数字编号精确匹配删除（GUI 下发的是文件编号，编号可能不连续，
+                    // 不能按排序后数组下标删除，否则编号有 gap 时会删错/删不到文件）。
+                    for (File f : tradeFiles) {
+                        if (tradeFileIndex(f) == packet.tradeIndex) {
+                            deleted = f.delete();
+                            break;
+                        }
                     }
                 }
                 if (!deleted) {
-                    System.err.println("[VisualCrafting] Trade delete removed nothing under "
+                    LOGGER.error("[VisualCrafting] Trade delete removed nothing under "
                             + profDir.getAbsolutePath() + " (index=" + packet.tradeIndex + ")");
+                    serverPlayer.displayClientMessage(
+                            Component.literal("未找到交易 #" + packet.tradeIndex), false);
+                } else {
+                    serverPlayer.displayClientMessage(
+                            Component.literal("已删除交易 #" + packet.tradeIndex), false);
                 }
 
                 PacketDistributor.sendToPlayer(serverPlayer, new DeleteTradeResponsePacket());
             } catch (Exception e) {
-                System.err.println("[VisualCrafting] Failed to delete trade: " + e.getMessage());
+                LOGGER.error("[VisualCrafting] Failed to delete trade: " + e.getMessage());
+                serverPlayer.displayClientMessage(
+                        Component.literal("交易删除失败：" + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage())), false);
             }
         });
     }
@@ -1298,7 +1330,7 @@ public class ModMessages {
                             .getDeclaredMethod("onDeleteTradeResponse");
                     method.invoke(vcScreen);
                 } catch (Exception e) {
-                    System.err.println("[VisualCrafting] Client reflection handler failed: " + e.getClass().getSimpleName() + ": " + e.getMessage());
+                    LOGGER.error("[VisualCrafting] Client reflection handler failed: " + e.getClass().getSimpleName() + ": " + e.getMessage());
                 }
             }
         });
@@ -1330,7 +1362,6 @@ public class ModMessages {
                 } else {
                     runtimeListings = VisualCraftingTradeHandler.getRuntimeVillagerTrades(profId, level);
                 }
-
                 for (int runtimeIndex = 0; runtimeIndex < runtimeListings.size(); runtimeIndex++) {
                     MerchantOffer offer = createPreviewOffer(serverPlayer, profId, level, runtimeListings.get(runtimeIndex));
                     if (offer == null) continue;
@@ -1359,10 +1390,10 @@ public class ModMessages {
                             JsonObject json = JsonParser.parseString(
                                     Files.readString(file.toPath(), StandardCharsets.UTF_8)).getAsJsonObject();
                             int tradeLevel = Math.clamp(json.has("level") ? json.get("level").getAsInt() : 1, 1, 5);
-                            if (tradeLevel != level) continue;
+                            // 取消按请求等级过滤：GUI 需要一眼看到该职业全部等级的自定义交易，
+                            // 标签以 [LvN] 前缀标注等级；删除/编辑仍以文件名编号为准。
                             // clear-<level>.json 只是“清空本级”标记，不是可编辑交易，不能出现在交易下拉框。
                             if (json.has("clearExisting") && json.get("clearExisting").getAsBoolean()) continue;
-
                             String cost1 = json.has("cost1") ? json.get("cost1").getAsString() : "";
                             String cost2 = json.has("cost2") ? json.get("cost2").getAsString() : "";
                             String result = json.has("result") ? json.get("result").getAsString() : "";
@@ -1371,7 +1402,7 @@ public class ModMessages {
                             int resultCount = json.has("resultCount") ? json.get("resultCount").getAsInt() : 1;
 
                             StringBuilder label = new StringBuilder();
-                            label.append("自定义 ").append(index + 1).append(". ")
+                            label.append("自定义 ").append(index + 1).append(". [Lv").append(tradeLevel).append("] ")
                                     .append(cost1Count).append("x ").append(shortItemId(cost1));
                             if (!cost2.isEmpty() && cost2Count > 0) {
                                 label.append(" + ").append(cost2Count).append("x ").append(shortItemId(cost2));
@@ -1387,7 +1418,7 @@ public class ModMessages {
                     }
                 }
             } catch (Exception e) {
-                System.err.println("[VisualCrafting] Failed to load trade list: " + e.getMessage());
+                LOGGER.error("[VisualCrafting] Failed to load trade list: " + e.getMessage());
             }
 
             PacketDistributor.sendToPlayer(serverPlayer,
@@ -1418,7 +1449,7 @@ public class ModMessages {
             villager.setVillagerData(data);
             return listing.getOffer(villager, RandomSource.create());
         } catch (Exception e) {
-            System.err.println("[VisualCrafting] Failed to create preview offer for "
+            LOGGER.error("[VisualCrafting] Failed to create preview offer for "
                     + profId + " level " + level + ": " + e.getMessage());
             return null;
         }
@@ -1471,10 +1502,11 @@ public class ModMessages {
                     java.lang.reflect.Method method = vcScreen.getClass()
                             .getDeclaredMethod("updateMode3TradeList",
                                     String.class, int.class, List.class, List.class, List.class);
+                    method.setAccessible(true);
                     method.invoke(vcScreen, packet.profId, packet.level,
                             packet.labels, packet.indices, packet.tradeJsons);
                 } catch (Exception e) {
-                    System.err.println("[VisualCrafting] Client trade list sync failed: "
+                    LOGGER.error("[VisualCrafting] Client trade list sync failed: "
                             + e.getClass().getSimpleName() + ": " + e.getMessage());
                 }
             }
@@ -1517,7 +1549,7 @@ public class ModMessages {
 
                 PacketDistributor.sendToPlayer(serverPlayer, new ClearTradeLevelResponsePacket());
             } catch (Exception e) {
-                System.err.println("[VisualCrafting] Failed to clear trade level: " + e.getMessage());
+                LOGGER.error("[VisualCrafting] Failed to clear trade level: " + e.getMessage());
             }
         });
     }
@@ -1531,7 +1563,7 @@ public class ModMessages {
                             .getDeclaredMethod("onClearTradeLevelResponse");
                     method.invoke(vcScreen);
                 } catch (Exception e) {
-                    System.err.println("[VisualCrafting] Client clear trade response failed: "
+                    LOGGER.error("[VisualCrafting] Client clear trade response failed: "
                             + e.getClass().getSimpleName() + ": " + e.getMessage());
                 }
             }

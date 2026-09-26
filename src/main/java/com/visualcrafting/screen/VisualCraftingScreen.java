@@ -5714,9 +5714,9 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         if (!this.mode3ProfessionIds.isEmpty()) return;
         this.mode3ProfessionIds = new ArrayList<String>(Arrays.asList(
                 "minecraft:wandering_trader",
-                "farmer", "fisherman", "shepherd", "fletcher", "librarian",
-                "cartographer", "cleric", "armorer", "weaponsmith", "toolsmith",
-                "butcher", "leatherworker", "mason"
+                "minecraft:farmer", "minecraft:fisherman", "minecraft:shepherd", "minecraft:fletcher", "minecraft:librarian",
+                "minecraft:cartographer", "minecraft:cleric", "minecraft:armorer", "minecraft:weaponsmith", "minecraft:toolsmith",
+                "minecraft:butcher", "minecraft:leatherworker", "minecraft:mason"
         ));
         this.mode3ProfessionNames = new ArrayList<String>(Arrays.asList(
                 "流浪商人",
@@ -5832,6 +5832,15 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             this.mode3Xp = Math.clamp(json.has("xp") ? json.get("xp").getAsInt() : 2, 0, 9999);
             this.mode3PriceMultiplier = Math.max(0.0f,
                     json.has("priceMultiplier") ? json.get("priceMultiplier").getAsFloat() : 0.05f);
+            // 同步等级：列表现在展示全部等级交易，选中时等级下拉跟随文件等级，
+            // 避免编辑 [Lv2] 交易时误按当前等级(1)保存导致交易被降级。
+            if (json.has("level")) {
+                this.mode3Level = Math.clamp(json.get("level").getAsInt(), 1, 5);
+                this.mode3LevelIdx = Math.clamp(this.mode3Level - 1, 0, 4);
+                if (this.mode3LevelDropdown != null) {
+                    this.mode3LevelDropdown.setOptions(this.mode3LevelNames, this.mode3LevelIdx);
+                }
+            }
             // NBT 精准匹配状态与数据（旧文件无字段按未勾选处理）
             this.mode3NbtMatch0 = json.has("nbtMatchCost1") && json.get("nbtMatchCost1").getAsBoolean();
             this.mode3NbtData0 = json.has("nbtDataCost1") ? json.get("nbtDataCost1").getAsString() : "";
