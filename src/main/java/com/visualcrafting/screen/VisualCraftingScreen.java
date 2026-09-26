@@ -5749,7 +5749,8 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         this.mode3DeleteIndex = this.mode3TradeIndices.get(this.mode3TradeIdx);
         PacketDistributor.sendToServer(new ModMessages.RequestDeleteTradePacket(
                 this.mode3ProfessionIds.get(this.mode3ProfessionIdx),
-                this.mode3DeleteIndex), new CustomPacketPayload[0]);
+                this.mode3DeleteIndex,
+                Math.clamp(this.mode3Level, 1, 5)), new CustomPacketPayload[0]);
     }
 
     private void updateMode4Data(List<String> profNames, List<String> profIds,
