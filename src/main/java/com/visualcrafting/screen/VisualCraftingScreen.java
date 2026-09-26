@@ -2358,7 +2358,14 @@ public static void logWarn(String message, Throwable cause) {
      * 描边须同步 -1 偏移，保证槽线中心与槽位背景中心重合。
      */
     private void renderSlotOutline(GuiGraphics guiGraphics, int slotIndex) {
-        guiGraphics.renderOutline(this.slotAbsX(slotIndex) + this.invLineOffsetX, this.slotAbsY(slotIndex) + this.invLineOffsetY, 18, 18, -1);
+        int slotX = this.slotAbsX(slotIndex);
+        int slotY = this.slotAbsY(slotIndex);
+        // Mode 0 使用旧坐标体系；其他标签页的内容层额外 translate(+24)，
+        // 因此槽线绘制坐标需要抵消这一层，最终与实际 Slot 本体完全重合。
+        if (this.mode != 0) {
+            slotY -= UI_CONTENT_SHIFT_Y;
+        }
+        guiGraphics.renderOutline(slotX + this.invLineOffsetX, slotY + this.invLineOffsetY, 18, 18, -1);
     }
 
     private void setSlotPosition(int slotIndex, int x, int y) {
@@ -2621,7 +2628,12 @@ public static void logWarn(String message, Throwable cause) {
             guiGraphics.pose().popPose();
         }
 
-        for (int slotIdx = VisualCraftingMenu.PLAYER_START; slotIdx < this.menu.slots.size(); ++slotIdx) this.renderSlotOutline(guiGraphics, slotIdx);
+        for (int slotIdx = VisualCraftingMenu.PLAYER_START; slotIdx < this.menu.slots.size(); ++slotIdx) {
+            guiGraphics.renderOutline(
+                    this.slotAbsX(slotIdx) + this.invLineOffsetX,
+                    this.slotAbsY(slotIdx) + this.invLineOffsetY,
+                    18, 18, -1);
+        }
     }
 
     private void renderCraftList(GuiGraphics guiGraphics, int mouseX, int mouseY) {
@@ -3585,17 +3597,32 @@ public static void logWarn(String message, Throwable cause) {
     }
 
     private void drawMode3NbtCheckboxes(GuiGraphics guiGraphics, int mouseX, int mouseY) {
-        int cby = this.topPos + 98;
-        this.drawMode3NbtBox(guiGraphics, this.leftPos + 37, cby, this.mode3NbtMatch0, mouseX, mouseY, "成本1");
-        this.drawMode3NbtBox(guiGraphics, this.leftPos + 61, cby, this.mode3NbtMatch1, mouseX, mouseY, "成本2");
-        this.drawMode3NbtBox(guiGraphics, this.leftPos + 101, cby, this.mode3NbtMatch81, mouseX, mouseY, "结果1");
-        this.drawMode3NbtBox(guiGraphics, this.leftPos + 126, cby, this.mode3NbtMatch80, mouseX, mouseY, "结果2");
+        // 复选框永远锚定在对应交易槽下方，不再依赖固定 leftPos + 常数。
+        // 当前 renderMode3Extras 位于内容层 +24，所以这里先回退内容层偏移，
+        // 再让渲染时的 translate(+24) 恢复到真实 Slot 坐标。
+        int[] slotIndices = new int[]{0, 1, 81, 80};
+        String[] labels = new String[]{"成本1", "成本2", "结果1", "结果2"};
+        boolean[] checked = new boolean[]{
+                this.mode3NbtMatch0,
+                this.mode3NbtMatch1,
+                this.mode3NbtMatch81,
+                this.mode3NbtMatch80
+        };
+
+        for (int i = 0; i < slotIndices.length; ++i) {
+            int slotIndex = slotIndices[i];
+            int checkboxX = this.slotAbsX(slotIndex) + 5;
+            int checkboxY = this.slotAbsY(slotIndex) - UI_CONTENT_SHIFT_Y + 20;
+            this.drawMode3NbtBox(guiGraphics, checkboxX, checkboxY, checked[i], mouseX, mouseY, labels[i]);
+        }
     }
 
     private void drawMode3NbtBox(GuiGraphics guiGraphics, int x, int y, boolean checked,
                                  int mouseX, int mouseY, String slotLabel) {
-        guiGraphics.drawString(this.font, checked ? "☑" : "☐", x, y, 4210752, false);
-        if (mouseX >= x && mouseX < x + 8 && mouseY >= y && mouseY < y + 9) {
+        boolean hovered = mouseX >= x && mouseX < x + 9 && mouseY >= y && mouseY < y + 9;
+        int textColor = hovered ? 0xFFFFFF : 4210752;
+        guiGraphics.drawString(this.font, checked ? "☑" : "☐", x, y, textColor, false);
+        if (hovered) {
             guiGraphics.renderComponentTooltip(this.font, List.of(
                     Component.literal(checked ? "已启用 NBT 精准匹配" : "点击启用 NBT 精准匹配"),
                     Component.literal(slotLabel + "：交易时按物品 NBT/组件全等匹配")), mouseX, mouseY);
@@ -3603,11 +3630,14 @@ public static void logWarn(String message, Throwable cause) {
     }
 
     private boolean handleMode3NbtClick(double mouseX, double mouseY) {
-        int cby = this.topPos + 98;
-        if (this.mode3NbtBoxHit(mouseX, mouseY, this.leftPos + 37, cby)) return this.toggleMode3Nbt(0);
-        if (this.mode3NbtBoxHit(mouseX, mouseY, this.leftPos + 61, cby)) return this.toggleMode3Nbt(1);
-        if (this.mode3NbtBoxHit(mouseX, mouseY, this.leftPos + 101, cby)) return this.toggleMode3Nbt(81);
-        if (this.mode3NbtBoxHit(mouseX, mouseY, this.leftPos + 126, cby)) return this.toggleMode3Nbt(80);
+        int[] slotIndices = new int[]{0, 1, 81, 80};
+        for (int slotIndex : slotIndices) {
+            int checkboxX = this.slotAbsX(slotIndex) + 5;
+            int checkboxY = this.slotAbsY(slotIndex) + 20;
+            if (this.mode3NbtBoxHit(mouseX, mouseY, checkboxX, checkboxY)) {
+                return this.toggleMode3Nbt(slotIndex);
+            }
+        }
         return false;
     }
 
