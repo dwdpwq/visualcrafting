@@ -5807,15 +5807,16 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         }
         if (!this.mode3TradeIndices.isEmpty() && this.mode3TradeIdx < this.mode3TradeIndices.size()) {
             this.mode3DeleteIndex = this.mode3TradeIndices.get(this.mode3TradeIdx);
+            this.mode3SelectedRuntime = this.mode3DeleteIndex < 0;
+            this.mode3SelectedRuntimeIndex = this.mode3SelectedRuntime
+                    ? -this.mode3DeleteIndex - 1 : -1;
+            if (this.mode3TradeIdx < this.mode3TradeJsons.size()) {
+                this.loadMode3TradeFromJson(this.mode3TradeJsons.get(this.mode3TradeIdx));
+            }
         }
     }
 
     private void onSaveTradeResponse() {
-        this.showStatus("交易已保存");
-        this.requestMode3TradeList();
-    }
-
-
         this.showStatus("交易已保存");
         this.requestMode3TradeList();
     }
