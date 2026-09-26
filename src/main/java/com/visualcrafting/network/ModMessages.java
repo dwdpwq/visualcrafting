@@ -9,6 +9,7 @@ import com.visualcrafting.block.VisualCraftingBlockEntity;
 import com.visualcrafting.recipe.RecipeRegistrar;
 import com.visualcrafting.screen.VisualCraftingMenu;
 import com.visualcrafting.screen.VisualCraftingScreen;
+import com.visualcrafting.trade.VisualCraftingTradeHandler;
 import com.visualcrafting.worldgen.BlockDisableRegistry;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
@@ -29,6 +30,14 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.tags.TagKey;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.entity.npc.VillagerData;
+import net.minecraft.world.entity.npc.VillagerProfession;
+import net.minecraft.world.entity.npc.VillagerTrades;
+import net.minecraft.world.entity.npc.WanderingTrader;
+import net.minecraft.world.item.trading.MerchantOffer;
+import net.minecraft.util.RandomSource;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.component.CustomData;
@@ -1265,9 +1274,38 @@ public class ModMessages {
             int level = Math.clamp(packet.level(), 1, 5);
             List<String> labels = new ArrayList<>();
             List<Integer> indices = new ArrayList<>();
+            List<String> tradeJsons = new ArrayList<>();
 
             try {
                 File worldDir = serverPlayer.server.getWorldPath(LevelResource.ROOT).toFile();
+
+                // ① 先列出当前运行时的原版/其他 Mod 交易。
+                // 负数索引表示运行时交易：-(原始 index + 1)，用于后续写入 trade_overrides。
+                List<VillagerTrades.ItemListing> runtimeListings;
+                boolean wandering = "minecraft:wandering_trader".equals(profId);
+                if (wandering) {
+                    runtimeListings = VisualCraftingTradeHandler.getRuntimeWanderingTrades(
+                            level == 2 ? "rare" : "generic");
+                } else {
+                    runtimeListings = VisualCraftingTradeHandler.getRuntimeVillagerTrades(profId, level);
+                }
+
+                for (int runtimeIndex = 0; runtimeIndex < runtimeListings.size(); runtimeIndex++) {
+                    MerchantOffer offer = createPreviewOffer(serverPlayer, profId, level, runtimeListings.get(runtimeIndex));
+                    if (offer == null) continue;
+
+                    JsonObject json = merchantOfferToTradeJson(offer);
+                    json.addProperty("runtime", true);
+                    json.addProperty("runtimeIndex", runtimeIndex);
+                    json.addProperty("level", level);
+
+                    labels.add("原版/Mod " + (runtimeIndex + 1) + ". "
+                            + tradeLabel(offer.getCostA(), offer.getCostB(), offer.getResult()));
+                    indices.add(-(runtimeIndex + 1));
+                    tradeJsons.add(GSON.toJson(json));
+                }
+
+                // ② 再列出 GUI 自己保存的自定义交易。
                 File profDir = getTradeProfessionDirectory(worldDir, profId, false);
                 File[] files = profDir.listFiles((d, name) -> name.endsWith(".json"));
                 if (files != null) {
@@ -1290,14 +1328,16 @@ public class ModMessages {
                             int resultCount = json.has("resultCount") ? json.get("resultCount").getAsInt() : 1;
 
                             StringBuilder label = new StringBuilder();
-                            label.append(index + 1).append(". ")
+                            label.append("自定义 ").append(index + 1).append(". ")
                                     .append(cost1Count).append("x ").append(shortItemId(cost1));
                             if (!cost2.isEmpty() && cost2Count > 0) {
                                 label.append(" + ").append(cost2Count).append("x ").append(shortItemId(cost2));
                             }
                             label.append(" → ").append(resultCount).append("x ").append(shortItemId(result));
+
                             labels.add(label.toString());
                             indices.add(index);
+                            tradeJsons.add(json.toString());
                         } catch (Exception ignored) {
                             // 单个坏文件不应影响整个交易列表。
                         }
@@ -1308,14 +1348,70 @@ public class ModMessages {
             }
 
             PacketDistributor.sendToPlayer(serverPlayer,
-                    new SyncTradeListPacket(profId, level, labels, indices));
+                    new SyncTradeListPacket(profId, level, labels, indices, tradeJsons));
         });
     }
 
-    private static String shortItemId(String id) {
-        if (id == null || id.isEmpty()) return "?";
-        int colon = id.indexOf(':');
-        return colon >= 0 ? id.substring(colon + 1) : id;
+    /**
+     * 生成一个不加入世界的临时村民/流浪商人，仅用于调用 ItemListing#getOffer。
+     * 这样 GUI 可以看到原版和其他 Mod 的真实交易，而不需要玩家附近必须存在对应村民。
+     */
+    private static MerchantOffer createPreviewOffer(ServerPlayer player, String profId, int level,
+                                                    VillagerTrades.ItemListing listing) {
+        try {
+            if ("minecraft:wandering_trader".equals(profId)) {
+                WanderingTrader trader = new WanderingTrader(EntityType.WANDERING_TRADER, player.serverLevel());
+                return listing.getOffer(trader, RandomSource.create());
+            }
+
+            Optional<VillagerProfession> profession = BuiltInRegistries.VILLAGER_PROFESSION
+                    .getOptional(ResourceLocation.parse(profId));
+            if (profession.isEmpty()) return null;
+
+            Villager villager = new Villager(EntityType.VILLAGER, player.serverLevel());
+            VillagerData data = villager.getVillagerData()
+                    .setProfession(profession.get())
+                    .setLevel(Math.clamp(level, 1, 5));
+            villager.setVillagerData(data);
+            return listing.getOffer(villager, RandomSource.create());
+        } catch (Exception e) {
+            System.err.println("[VisualCrafting] Failed to create preview offer for "
+                    + profId + " level " + level + ": " + e.getMessage());
+            return null;
+        }
+    }
+
+    private static JsonObject merchantOfferToTradeJson(MerchantOffer offer) {
+        JsonObject json = new JsonObject();
+        ItemStack costA = offer.getCostA();
+        ItemStack costB = offer.getCostB();
+        ItemStack result = offer.getResult();
+
+        json.addProperty("cost1", BuiltInRegistries.ITEM.getKey(costA.getItem()).toString());
+        json.addProperty("cost1Count", Math.max(1, costA.getCount()));
+        if (!costB.isEmpty()) {
+            json.addProperty("cost2", BuiltInRegistries.ITEM.getKey(costB.getItem()).toString());
+            json.addProperty("cost2Count", Math.max(1, costB.getCount()));
+        }
+        json.addProperty("result", BuiltInRegistries.ITEM.getKey(result.getItem()).toString());
+        json.addProperty("resultCount", Math.max(1, result.getCount()));
+        json.addProperty("maxUses", offer.getMaxUses());
+        json.addProperty("xp", offer.getXp());
+        json.addProperty("priceMultiplier", offer.getPriceMultiplier());
+        return json;
+    }
+
+    private static String tradeLabel(ItemStack costA, ItemStack costB, ItemStack result) {
+        StringBuilder label = new StringBuilder();
+        label.append(costA.getCount()).append("x ")
+                .append(shortItemId(BuiltInRegistries.ITEM.getKey(costA.getItem()).toString()));
+        if (costB != null && !costB.isEmpty()) {
+            label.append(" + ").append(costB.getCount()).append("x ")
+                    .append(shortItemId(BuiltInRegistries.ITEM.getKey(costB.getItem()).toString()));
+        }
+        label.append(" → ").append(result.getCount()).append("x ")
+                .append(shortItemId(BuiltInRegistries.ITEM.getKey(result.getItem()).toString()));
+        return label.toString();
     }
 
     private static void handleSyncTradeList(SyncTradeListPacket packet, IPayloadContext ctx) {
@@ -1837,7 +1933,8 @@ public class ModMessages {
         }
     }
 
-    public record SyncTradeListPacket(String profId, int level, List<String> labels, List<Integer> indices)
+    public record SyncTradeListPacket(String profId, int level, List<String> labels,
+                                           List<Integer> indices, List<String> tradeJsons)
             implements CustomPacketPayload {
         public static final Type<SyncTradeListPacket> TYPE = new Type<>(SYNC_TRADE_LIST_ID);
         public static final StreamCodec<RegistryFriendlyByteBuf, SyncTradeListPacket> STREAM_CODEC =
@@ -1849,22 +1946,34 @@ public class ModMessages {
         private static void encode(RegistryFriendlyByteBuf buf, SyncTradeListPacket pkt) {
             buf.writeUtf(pkt.profId);
             buf.writeVarInt(pkt.level);
+
             buf.writeVarInt(pkt.labels.size());
             for (String label : pkt.labels) buf.writeUtf(label);
+
             buf.writeVarInt(pkt.indices.size());
             for (Integer index : pkt.indices) buf.writeVarInt(index);
+
+            buf.writeVarInt(pkt.tradeJsons.size());
+            for (String json : pkt.tradeJsons) buf.writeUtf(json);
         }
 
         private static SyncTradeListPacket decode(RegistryFriendlyByteBuf buf) {
             String profId = buf.readUtf();
             int level = buf.readVarInt();
+
             int labelCount = buf.readVarInt();
             List<String> labels = new ArrayList<>();
             for (int i = 0; i < labelCount; i++) labels.add(buf.readUtf());
+
             int indexCount = buf.readVarInt();
             List<Integer> indices = new ArrayList<>();
             for (int i = 0; i < indexCount; i++) indices.add(buf.readVarInt());
-            return new SyncTradeListPacket(profId, level, labels, indices);
+
+            int jsonCount = buf.readVarInt();
+            List<String> tradeJsons = new ArrayList<>();
+            for (int i = 0; i < jsonCount; i++) tradeJsons.add(buf.readUtf());
+
+            return new SyncTradeListPacket(profId, level, labels, indices, tradeJsons);
         }
     }
 
