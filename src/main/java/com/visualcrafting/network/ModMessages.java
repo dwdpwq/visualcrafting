@@ -1143,8 +1143,11 @@ public class ModMessages {
                             ? tradeJson.get("level").getAsInt() : 1, 1, 5);
 
                     File overrideFile;
-                    if ("__wandering_generic__".equals(profId) || "__wandering_rare__".equals(profId)) {
-                        String pool = "__wandering_generic__".equals(profId) ? "generic" : "rare";
+                    if ("__wandering_generic__".equals(profId) || "__wandering_rare__".equals(profId)
+                            || "minecraft:wandering_trader".equals(profId)) {
+                        String pool = "__wandering_generic__".equals(profId)
+                                ? "generic"
+                                : ("__wandering_rare__".equals(profId) ? "rare" : (level == 2 ? "rare" : "generic"));
                         File dir = new File(new File(new File(worldDir, "visualcrafting"),
                                 "trade_overrides"), "wandering");
                         dir.mkdirs();
@@ -1221,6 +1224,33 @@ public class ModMessages {
             try {
                 File worldDir = serverPlayer.server.getWorldPath(LevelResource.ROOT).toFile();
                 // 交易实际存放在 world/visualcrafting/trades/<profId>/（与保存路径一致）
+                // 运行时原版/Mod 交易使用负索引；删除对应 override 即恢复原始交易。
+                if (packet.tradeIndex < 0) {
+                    int runtimeIndex = -packet.tradeIndex - 1;
+                    int level = 1;
+                    // 当前 GUI 以职业 + 等级请求列表；override 文件按职业/等级/索引保存。
+                    // 这里从当前屏幕无法可靠读取等级，因此先按 1-5 查找并删除匹配索引。
+                    boolean removedOverride = false;
+                    File overrideRoot = new File(new File(new File(worldDir, "visualcrafting"),
+                            "trade_overrides"), "villager");
+                    if ("minecraft:wandering_trader".equals(profId)) {
+                        File wanderingDir = new File(new File(worldDir, "visualcrafting"),
+                                "trade_overrides/wandering");
+                        for (String pool : new String[]{"generic", "rare"}) {
+                            File f = new File(wanderingDir, pool + "-" + runtimeIndex + ".json");
+                            removedOverride |= f.isFile() && f.delete();
+                        }
+                    } else {
+                        File dir = new File(overrideRoot, profileDirectoryId(profId));
+                        for (int lv = 1; lv <= 5; lv++) {
+                            File f = new File(dir, lv + "-" + runtimeIndex + ".json");
+                            removedOverride |= f.isFile() && f.delete();
+                        }
+                    }
+                    PacketDistributor.sendToPlayer(serverPlayer, new DeleteTradeResponsePacket());
+                    return;
+                }
+
                 File profDir = getTradeProfessionDirectory(worldDir, profId, true);
 
                 boolean deleted = false;
@@ -1421,9 +1451,9 @@ public class ModMessages {
                 try {
                     java.lang.reflect.Method method = vcScreen.getClass()
                             .getDeclaredMethod("updateMode3TradeList",
-                                    String.class, int.class, List.class, List.class);
+                                    String.class, int.class, List.class, List.class, List.class);
                     method.invoke(vcScreen, packet.profId, packet.level,
-                            packet.labels, packet.indices);
+                            packet.labels, packet.indices, packet.tradeJsons);
                 } catch (Exception e) {
                     System.err.println("[VisualCrafting] Client trade list sync failed: "
                             + e.getClass().getSimpleName() + ": " + e.getMessage());
