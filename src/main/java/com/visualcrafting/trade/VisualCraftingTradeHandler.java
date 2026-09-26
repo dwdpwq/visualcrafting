@@ -17,6 +17,8 @@ import net.neoforged.neoforge.event.village.VillagerTradesEvent;
 import net.neoforged.neoforge.event.village.WandererTradesEvent;
 import net.neoforged.neoforge.server.ServerLifecycleHooks;
 import net.minecraft.world.level.storage.LevelResource;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.nio.charset.StandardCharsets;
@@ -52,8 +54,9 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * Omitted fields keep the original offer value.
  */
-@EventBusSubscriber(modid = "visualcrafting")
+@EventBusSubscriber(modid = "visualcrafting", bus = EventBusSubscriber.Bus.GAME)
 public final class VisualCraftingTradeHandler {
+    private static final Logger LOGGER = LoggerFactory.getLogger(VisualCraftingTradeHandler.class);
     /**
      * 当前服务器最近一次 VillagerTradesEvent 生成的“原版/其他 Mod”运行时交易。
      * GUI 查询时从这里读取，避免只扫描 world/visualcrafting/trades 导致原版交易永远为空。
@@ -94,26 +97,30 @@ public final class VisualCraftingTradeHandler {
                 : "";
         if (professionId.isEmpty()) return;
 
+        // 先缓存运行时原版/Mod 交易，再追加 GUI 自定义交易；避免 GUI 把自定义交易重复显示为运行时交易。
+        // 缓存只依赖 event.getTrades()，需在 server 检查之前完成，否则集成服务器尚未就绪时 RUNTIME 为空。
+        cacheVillagerRuntimeTrades(professionId, event.getTrades());
+
         var server = ServerLifecycleHooks.getCurrentServer();
         if (server == null) return;
         File root = server.getWorldPath(LevelResource.ROOT).toFile();
 
         applyVillagerOverrides(event.getTrades(), professionId, root);
-        // 先缓存运行时原版/Mod 交易，再追加 GUI 自定义交易；避免 GUI 把自定义交易重复显示为运行时交易。
-        cacheVillagerRuntimeTrades(professionId, event.getTrades());
         loadCustomTrades(event.getTrades(), professionId, root);
     }
 
     @SubscribeEvent
     public static void onWanderingTrades(WandererTradesEvent event) {
+        // 运行时缓存只依赖事件数据，需在 server 检查之前完成，否则集成服务器尚未就绪时 RUNTIME 为空。
+        RUNTIME_WANDERING_TRADES.put("generic", List.copyOf(event.getGenericTrades()));
+        RUNTIME_WANDERING_TRADES.put("rare", List.copyOf(event.getRareTrades()));
+
         var server = ServerLifecycleHooks.getCurrentServer();
         if (server == null) return;
 
         File root = server.getWorldPath(LevelResource.ROOT).toFile();
         applyWanderingOverrides(event.getGenericTrades(), "generic", root);
         applyWanderingOverrides(event.getRareTrades(), "rare", root);
-        RUNTIME_WANDERING_TRADES.put("generic", List.copyOf(event.getGenericTrades()));
-        RUNTIME_WANDERING_TRADES.put("rare", List.copyOf(event.getRareTrades()));
 
         // 将流浪商人作为一个独立编辑项接入 Mode 3：
         // 等级 1 对应普通交易池，等级 2 对应稀有交易池。
