@@ -716,7 +716,9 @@ public static void logWarn(String message, Throwable cause) {
         this.layoutCurrentModeSlots();
 
         // 统一把工作区控件下移到新版内容面板；底部档位/格式按钮保持原位，避免侵入背包区。
-        this.applyContentWidgetShift();
+        if (this.mode != 0) {
+            this.applyContentWidgetShift();
+        }
 
         // 打开 GUI 时请求一次运行时 Block 级禁用名单，保证缓存与按钮状态一致
         PacketDistributor.sendToServer(new RequestDisabledBlocksPacket(), new CustomPacketPayload[0]);
@@ -2444,13 +2446,13 @@ public static void logWarn(String message, Throwable cause) {
         int activeSlots = gridSize * gridSize;
         for (int i = 0; i < activeSlots; ++i) {
             Slot slot = this.menu.slots.get(i);
-            this.setContentSlotPosition(i, slot.x + this.gridSlotOffsetX, slot.y + this.gridSlotOffsetY);
+            this.setSlotPosition(i, slot.x + this.gridSlotOffsetX, slot.y + this.gridSlotOffsetY);
         }
         for (int i = activeSlots; i < 81; ++i) {
             this.hideSlot(i);
         }
         Slot outSlot = this.menu.slots.get(81);
-        this.setContentSlotPosition(81, outSlot.x + this.outSlotSlotOffsetX, outSlot.y + this.outSlotSlotOffsetY);
+        this.setSlotPosition(81, outSlot.x + this.outSlotSlotOffsetX, outSlot.y + this.outSlotSlotOffsetY);
     }
 
     /**
@@ -2592,8 +2594,10 @@ public static void logWarn(String message, Throwable cause) {
         guiGraphics.renderOutline(x + 7, invY - 5, w - 14, 75, 0xFF343C45);
         guiGraphics.drawString(this.font, Component.literal("背包"), x + 12, invY - 1, 0xFF9AA3AC, false);
 
-        guiGraphics.pose().pushPose();
-        guiGraphics.pose().translate(0.0f, UI_CONTENT_SHIFT_Y, 0.0f);
+        if (this.mode != 0) {
+            guiGraphics.pose().pushPose();
+            guiGraphics.pose().translate(0.0f, UI_CONTENT_SHIFT_Y, 0.0f);
+        }
         if (this.mode == 0) {
             int gridSize = this.getGridSize();
             int gridX = this.slotAbsX(0) + this.invLineOffsetX, gridY = this.slotAbsY(0) + this.invLineOffsetY;
@@ -2613,7 +2617,9 @@ public static void logWarn(String message, Throwable cause) {
         else if (this.mode == 7) this.renderMode7Extras(guiGraphics);
         else if (this.mode == 8) this.renderMode8Extras(guiGraphics, mouseX, mouseY);
         else this.renderMode2Extras(guiGraphics);
-        guiGraphics.pose().popPose();
+        if (this.mode != 0) {
+            guiGraphics.pose().popPose();
+        }
 
         for (int slotIdx = VisualCraftingMenu.PLAYER_START; slotIdx < this.menu.slots.size(); ++slotIdx) this.renderSlotOutline(guiGraphics, slotIdx);
     }
