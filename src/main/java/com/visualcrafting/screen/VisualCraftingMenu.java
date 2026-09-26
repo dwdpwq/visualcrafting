@@ -21,14 +21,16 @@ public class VisualCraftingMenu extends AbstractContainerMenu {
     public static final int MAX_GRID = 81;
     public static final int GRID_START = 0;
     public static final int OUTPUT_SLOT = MAX_GRID;       // 81
-    public static final int PLAYER_START = OUTPUT_SLOT + 1; // 82
-    public static final int PLAYER_END = PLAYER_START + 36; // 118
+    public static final int PROFESSION_BLOCK_SLOT = OUTPUT_SLOT + 1; // 82
+    public static final int PLAYER_START = PROFESSION_BLOCK_SLOT + 1; // 83
+    public static final int PLAYER_END = PLAYER_START + 36; // 119
 
     public final BlockPos blockPos;
     public final VisualCraftingBlockEntity blockEntity;
     private final ContainerLevelAccess access;
     public final Container craftSlots;
     public final Container resultSlot;
+    public final Container professionBlockSlot;
     public ChemSlotData chemSlotData;
     public int chemAmount;
 
@@ -91,6 +93,7 @@ public class VisualCraftingMenu extends AbstractContainerMenu {
         this.access = access;
         this.craftSlots = new SimpleContainer(MAX_GRID);
         this.resultSlot = new SimpleContainer(1);
+        this.professionBlockSlot = new SimpleContainer(1);
 
         // Resolve block entity from access (best-effort)
         VisualCraftingBlockEntity resolved = null;
@@ -125,6 +128,18 @@ public class VisualCraftingMenu extends AbstractContainerMenu {
         }
         // Output slot (index MAX_GRID = 81)
         this.addSlot(new ResultSlot(resultSlot, 0, 0, 0));
+
+        // Villager profession block slot (82): accepts only block items.
+        this.addSlot(new Slot(professionBlockSlot, 0, 0, 0) {
+            @Override
+            public boolean mayPlace(ItemStack stack) {
+                return stack.getItem() instanceof net.minecraft.world.item.BlockItem;
+            }
+            @Override
+            public int getMaxStackSize() {
+                return 1;
+            }
+        });
 
         // Player inventory (slots PLAYER_START .. PLAYER_START+26)
         for (int row = 0; row < 3; row++) {
@@ -213,6 +228,16 @@ public class VisualCraftingMenu extends AbstractContainerMenu {
                 }
             }
 
+            // Villager profession block slot is only visible in mode 3.
+            Slot professionSlot = this.slots.get(PROFESSION_BLOCK_SLOT);
+            if (this.currentMode == 3) {
+                fx.setInt(professionSlot, 8);
+                fy.setInt(professionSlot, 24);
+            } else {
+                fx.setInt(professionSlot, -2000);
+                fy.setInt(professionSlot, -2000);
+            }
+
             // Output slot (index 81) – dynamic position
             Slot outSlot = this.slots.get(OUTPUT_SLOT);
             fx.setInt(outSlot, outSlotX);
@@ -245,15 +270,31 @@ public class VisualCraftingMenu extends AbstractContainerMenu {
         if (slot != null && slot.hasItem()) {
             ItemStack stack = slot.getItem();
             result = stack.copy();
-            if (index < PLAYER_START) {
+
+            if (index == PROFESSION_BLOCK_SLOT) {
                 if (!this.moveItemStackTo(stack, PLAYER_START, PLAYER_END, true)) {
                     return ItemStack.EMPTY;
                 }
-            } else {
+            } else if (index >= PLAYER_START) {
+                // 村民交易页：玩家背包中的方块可快速放入职业方块槽。
+                if (this.currentMode == 3 && stack.getItem() instanceof net.minecraft.world.item.BlockItem
+                        && !this.slots.get(PROFESSION_BLOCK_SLOT).hasItem()) {
+                    ItemStack copy = stack.copyWithCount(1);
+                    this.slots.get(PROFESSION_BLOCK_SLOT).set(copy);
+                    stack.shrink(1);
+                    if (stack.isEmpty()) slot.setByPlayer(ItemStack.EMPTY);
+                    else slot.setChanged();
+                    return result;
+                }
                 if (!this.moveItemStackTo(stack, 0, MAX_GRID, false)) {
                     return ItemStack.EMPTY;
                 }
+            } else {
+                if (!this.moveItemStackTo(stack, PLAYER_START, PLAYER_END, true)) {
+                    return ItemStack.EMPTY;
+                }
             }
+
             if (stack.isEmpty()) slot.setByPlayer(ItemStack.EMPTY);
             else slot.setChanged();
         }
@@ -281,6 +322,14 @@ public class VisualCraftingMenu extends AbstractContainerMenu {
                 slot.set(ItemStack.EMPTY);
                 player.drop(stack, false);
             }
+        }
+
+        // Return the custom villager profession block to the player.
+        Slot professionSlot = this.slots.get(PROFESSION_BLOCK_SLOT);
+        if (professionSlot.hasItem()) {
+            ItemStack stack = professionSlot.getItem();
+            professionSlot.set(ItemStack.EMPTY);
+            player.drop(stack, false);
         }
     }
 
