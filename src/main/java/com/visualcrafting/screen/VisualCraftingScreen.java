@@ -454,7 +454,21 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     private final ItemStack[] ghostItems = new ItemStack[9];
     private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger("VisualCrafting");
 
-    public static void logWarn(String message, Throwable cause) {
+        // 新版外框相对旧版内容坐标增加的统一内边距。
+    // 所有 Slot、控件、模式绘制和点击区域继续使用 leftPos/topPos 作为内容原点；
+    // 外框本身使用 panelLeft/panelTop，从而彻底避免“只移动物品栏、其他控件不动”的坐标分裂。
+    private static final int UI_ORIGIN_OFFSET_X = 50;
+    private static final int UI_ORIGIN_OFFSET_Y = 12;
+
+    private int panelLeft() {
+        return this.leftPos - UI_ORIGIN_OFFSET_X;
+    }
+
+    private int panelTop() {
+        return this.topPos - UI_ORIGIN_OFFSET_Y;
+    }
+
+public static void logWarn(String message, Throwable cause) {
         LOGGER.warn(message, cause);
     }
 
@@ -2315,8 +2329,10 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         int gridSize = this.getGridSize();
         this.imageWidth = 360 + (gridSize - 3) * 18;
         this.imageHeight = gridSize * 18 + 185;
-        this.leftPos = (this.width - this.imageWidth) / 2;
-        this.topPos = (this.height - this.imageHeight) / 2;
+        // leftPos/topPos 是“内容坐标原点”，外框向左/上各保留统一内边距。
+        // 这样所有旧的模式坐标会整体进入新版外框，而不是只有背包槽位发生位移。
+        this.leftPos = (this.width - this.imageWidth) / 2 + UI_ORIGIN_OFFSET_X;
+        this.topPos = (this.height - this.imageHeight) / 2 + UI_ORIGIN_OFFSET_Y;
     }
 
     /**
@@ -2521,7 +2537,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         RenderSystem.setShader(GameRenderer::getPositionTexShader);
         RenderSystem.setShaderColor(1.0f, 1.0f, 1.0f, 1.0f);
 
-        int x = this.leftPos, y = this.topPos, w = this.imageWidth, h = this.imageHeight;
+        int x = this.panelLeft(), y = this.panelTop(), w = this.imageWidth, h = this.imageHeight;
         guiGraphics.fill(x, y, x + w, y + h, 0xF20D1014);
         guiGraphics.renderOutline(x, y, w, h, 0xFF59636D);
         guiGraphics.fill(x + 1, y + 1, x + w - 1, y + 27, 0xFF171C22);
@@ -2580,7 +2596,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     }
 
     private void renderCraftList(GuiGraphics guiGraphics, int mouseX, int mouseY) {
-        int listX = this.leftPos + this.imageWidth - 88 + this.recipesOffsetX;
+        int listX = this.panelLeft() + this.imageWidth - 88 + this.recipesOffsetX;
         int listY = this.topPos + 13 + this.recipesOffsetY;
         guiGraphics.drawString(this.font, Component.translatable("gui.visualcrafting.label.recipes_count", this.recipes.size()).getString(), listX, listY - 14, 0x404040, false);
         int itemsPerPage = 7;
@@ -2644,8 +2660,8 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
 
         int tabWidth = 24;
         int tabGap = 4;
-        int tabStartX = this.leftPos + 8;
-        int tabStartY = this.topPos - 29;
+        int tabStartX = this.panelLeft() + 8;
+        int tabStartY = this.panelTop() - 29;
         if (mouseX >= (double)tabStartX && mouseX < (double)(tabStartX + tabWidth) && mouseY >= (double)tabStartY && mouseY < (double)(tabStartY + 24)) {
             if (this.mode != 0) {
                 this.switchMode(0);
@@ -2854,7 +2870,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     }
 
     private void craftListClick(double mouseX, double mouseY, int button) {
-        int listX = this.leftPos + this.imageWidth - 88 + this.recipesOffsetX;
+        int listX = this.panelLeft() + this.imageWidth - 88 + this.recipesOffsetX;
         int listY = this.topPos + 13 + this.recipesOffsetY;
         int itemsPerPage = 7;
         for (int i = this.scrollOffset * itemsPerPage; i < Math.min((this.scrollOffset + 1) * itemsPerPage, this.recipes.size()); ++i) {
@@ -2986,7 +3002,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
 
             int areaTop = this.topPos + MODE8_SCROLL_TOP;
             int areaBottom = this.topPos + this.imageHeight - 83;
-            if (mouseY >= (double)areaTop && mouseY < (double)areaBottom && mouseX >= (double)(this.leftPos + 56) && mouseX < (double)(this.leftPos + this.imageWidth - 8)) {
+            if (mouseY >= (double)areaTop && mouseY < (double)areaBottom && mouseX >= (double)(this.leftPos + 56) && mouseX < (double)(this.panelLeft() + this.imageWidth - 8)) {
                 int maxScroll = this.mode8MaxScroll();
                 this.mode8ScrollOffset = Math.clamp(this.mode8ScrollOffset - ((int)Math.signum(scrollY)), 0, maxScroll);
                 this.repositionMode8Widgets();
@@ -3704,12 +3720,12 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         this.funcButtons.add(this.addRenderableWidget(button4));
         this.funcButtons.add(this.addRenderableWidget(button5));
         MutableComponent mutableComponent = this.format == 0 ? Component.literal("KubeJS") : Component.literal("CRT");
-        this.formatToggle = Button.builder(mutableComponent, this::onFormatToggle).pos(this.leftPos + 2 + this.btnOffsetX, this.topPos + this.imageHeight - 26 + this.tierOffsetY).size(46, 16).build();
+        this.formatToggle = Button.builder(mutableComponent, this::onFormatToggle).pos(this.leftPos + 2 + this.btnOffsetX, this.panelTop() + this.imageHeight - 26 + this.tierOffsetY).size(46, 16).build();
         this.addRenderableWidget(this.formatToggle);
-        Button button6 = Button.builder(Component.translatable(TIER_LABELS[0]), button -> this.onTier(0)).pos(this.leftPos + this.imageWidth - 94, this.topPos + this.imageHeight - 44 + this.tierOffsetY).size(46, 16).build();
-        Button button7 = Button.builder(Component.translatable(TIER_LABELS[1]), button -> this.onTier(1)).pos(this.leftPos + this.imageWidth - 46, this.topPos + this.imageHeight - 44 + this.tierOffsetY).size(46, 16).build();
-        Button button8 = Button.builder(Component.translatable(TIER_LABELS[2]), button -> this.onTier(2)).pos(this.leftPos + this.imageWidth - 94, this.topPos + this.imageHeight - 26 + this.tierOffsetY).size(46, 16).build();
-        Button button9 = Button.builder(Component.translatable(TIER_LABELS[3]), button -> this.onTier(3)).pos(this.leftPos + this.imageWidth - 46, this.topPos + this.imageHeight - 26 + this.tierOffsetY).size(46, 16).build();
+        Button button6 = Button.builder(Component.translatable(TIER_LABELS[0]), button -> this.onTier(0)).pos(this.panelLeft() + this.imageWidth - 94, this.panelTop() + this.imageHeight - 44 + this.tierOffsetY).size(46, 16).build();
+        Button button7 = Button.builder(Component.translatable(TIER_LABELS[1]), button -> this.onTier(1)).pos(this.panelLeft() + this.imageWidth - 46, this.panelTop() + this.imageHeight - 44 + this.tierOffsetY).size(46, 16).build();
+        Button button8 = Button.builder(Component.translatable(TIER_LABELS[2]), button -> this.onTier(2)).pos(this.panelLeft() + this.imageWidth - 94, this.panelTop() + this.imageHeight - 26 + this.tierOffsetY).size(46, 16).build();
+        Button button9 = Button.builder(Component.translatable(TIER_LABELS[3]), button -> this.onTier(3)).pos(this.panelLeft() + this.imageWidth - 46, this.panelTop() + this.imageHeight - 26 + this.tierOffsetY).size(46, 16).build();
         this.tierButtons.add(this.addRenderableWidget(button6));
         this.tierButtons.add(this.addRenderableWidget(button7));
         this.tierButtons.add(this.addRenderableWidget(button8));
