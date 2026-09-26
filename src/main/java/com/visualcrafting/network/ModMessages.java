@@ -1364,6 +1364,8 @@ public class ModMessages {
                                     Files.readString(file.toPath(), StandardCharsets.UTF_8)).getAsJsonObject();
                             int tradeLevel = Math.clamp(json.has("level") ? json.get("level").getAsInt() : 1, 1, 5);
                             if (tradeLevel != level) continue;
+                            // clear-<level>.json 只是“清空本级”标记，不是可编辑交易，不能出现在交易下拉框。
+                            if (json.has("clearExisting") && json.get("clearExisting").getAsBoolean()) continue;
 
                             String cost1 = json.has("cost1") ? json.get("cost1").getAsString() : "";
                             String cost2 = json.has("cost2") ? json.get("cost2").getAsString() : "";
