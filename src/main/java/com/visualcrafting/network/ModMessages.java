@@ -1444,6 +1444,12 @@ public class ModMessages {
         return json;
     }
 
+    /** 缩短物品 ID 便于 GUI 展示：去掉 minecraft: 前缀，保留其他命名空间以便区分。 */
+    private static String shortItemId(String itemId) {
+        if (itemId == null) return "";
+        return itemId.startsWith("minecraft:") ? itemId.substring("minecraft:".length()) : itemId;
+    }
+
     private static String tradeLabel(ItemStack costA, ItemStack costB, ItemStack result) {
         StringBuilder label = new StringBuilder();
         label.append(costA.getCount()).append("x ")

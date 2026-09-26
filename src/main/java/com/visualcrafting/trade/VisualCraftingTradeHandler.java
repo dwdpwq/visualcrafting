@@ -3,6 +3,8 @@ package com.visualcrafting.trade;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.NbtUtils;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.npc.VillagerTrades;
@@ -172,20 +174,45 @@ public final class VisualCraftingTradeHandler {
             ItemStack cost1 = readOptionalStack(json, "cost1", "cost1Count");
             ItemStack cost2 = readOptionalStack(json, "cost2", "cost2Count");
             ItemStack result = readOptionalStack(json, "result", "resultCount");
+            ItemStack nbtStackCost1 = readNbtStack(json, "nbtMatchCost1", "nbtDataCost1", cost1.getCount());
+            ItemStack nbtStackCost2 = readNbtStack(json, "nbtMatchCost2", "nbtDataCost2", cost2.getCount());
+            ItemStack nbtStackResult = readNbtStack(json, "nbtMatchResult", "nbtDataResult", result.getCount());
 
             int maxUses = optionalInt(json, "maxUses", -1);
             int xp = optionalInt(json, "xp", -1);
             float multiplier = optionalFloat(json, "priceMultiplier", -1.0F);
 
             if (cost1.isEmpty() && cost2.isEmpty() && result.isEmpty()
+                    && nbtStackCost1.isEmpty() && nbtStackCost2.isEmpty() && nbtStackResult.isEmpty()
                     && maxUses < 0 && xp < 0 && multiplier < 0.0F) {
                 return null;
             }
-            return new OverrideDefinition(cost1, cost2, result, maxUses, xp, multiplier);
+            return new OverrideDefinition(cost1, cost2, result,
+                    nbtStackCost1, nbtStackCost2, nbtStackResult,
+                    maxUses, xp, multiplier);
         } catch (Exception e) {
             System.err.println("[VisualCrafting] Failed to load trade override "
                     + file.getAbsolutePath() + ": " + e.getMessage());
             return null;
+        }
+    }
+
+    /** 解析 NBT 匹配开关对应的完整物品（含组件）；未启用或解析失败返回空栈。 */
+    private static ItemStack readNbtStack(JsonObject json, String matchKey, String dataKey, int count) {
+        if (!json.has(matchKey) || !json.get(matchKey).getAsBoolean()) return ItemStack.EMPTY;
+        if (!json.has(dataKey)) return ItemStack.EMPTY;
+        try {
+            String snbt = json.get(dataKey).getAsString();
+            if (snbt == null || snbt.isEmpty()) return ItemStack.EMPTY;
+            var server = ServerLifecycleHooks.getCurrentServer();
+            if (server == null) return ItemStack.EMPTY;
+            CompoundTag tag = NbtUtils.snbtToStructure(snbt);
+            ItemStack stack = ItemStack.parseOptional(server.registryAccess(), tag);
+            if (!stack.isEmpty()) stack.setCount(clamp(count, 1, 64));
+            return stack;
+        } catch (Exception e) {
+            System.err.println("[VisualCrafting] Failed to parse NBT data in override: " + e.getMessage());
+            return ItemStack.EMPTY;
         }
     }
 
@@ -271,10 +298,13 @@ public final class VisualCraftingTradeHandler {
             List<VillagerTrades.ItemListing> levelTrades = trades.get(definition.level);
             if (levelTrades == null) continue;
 
-            ItemStack costA = itemStack(definition.cost1, definition.cost1Count);
+            ItemStack costA = buildTradeStack(definition.cost1, definition.cost1Count,
+                    definition.nbtMatchCost1, definition.nbtDataCost1);
             ItemStack costB = definition.cost2.isEmpty()
-                    ? ItemStack.EMPTY : itemStack(definition.cost2, definition.cost2Count);
-            ItemStack result = itemStack(definition.result, definition.resultCount);
+                    ? ItemStack.EMPTY : buildTradeStack(definition.cost2, definition.cost2Count,
+                            definition.nbtMatchCost2, definition.nbtDataCost2);
+            ItemStack result = buildTradeStack(definition.result, definition.resultCount,
+                    definition.nbtMatchResult, definition.nbtDataResult);
 
             if (costA.isEmpty() || result.isEmpty()) continue;
 
@@ -320,6 +350,26 @@ public final class VisualCraftingTradeHandler {
         }
     }
 
+    /** 按基础 id/count 构建物品；勾选 NBT 匹配时用保存的 SNBT 还原完整物品（含组件），解析失败回退基础物品。 */
+    private static ItemStack buildTradeStack(String id, int count, boolean nbtMatch, String nbtData) {
+        ItemStack stack = itemStack(id, count);
+        if (!nbtMatch || nbtData == null || nbtData.isEmpty()) return stack;
+        try {
+            var server = ServerLifecycleHooks.getCurrentServer();
+            if (server == null) return stack;
+            CompoundTag tag = NbtUtils.snbtToStructure(nbtData);
+            ItemStack parsed = ItemStack.parseOptional(server.registryAccess(), tag);
+            if (!parsed.isEmpty()) {
+                parsed.setCount(Math.max(1, Math.min(64, count)));
+                return parsed;
+            }
+        } catch (Exception e) {
+            System.err.println("[VisualCrafting] Failed to parse NBT data for trade item "
+                    + id + ": " + e.getMessage());
+        }
+        return stack;
+    }
+
     private static int clamp(int value, int min, int max) {
         return Math.max(min, Math.min(max, value));
     }
@@ -328,6 +378,9 @@ public final class VisualCraftingTradeHandler {
             ItemStack cost1,
             ItemStack cost2,
             ItemStack result,
+            ItemStack nbtStackCost1,
+            ItemStack nbtStackCost2,
+            ItemStack nbtStackResult,
             int maxUses,
             int xp,
             float priceMultiplier) {
@@ -335,6 +388,9 @@ public final class VisualCraftingTradeHandler {
             cost1 = cost1 == null ? ItemStack.EMPTY : cost1.copy();
             cost2 = cost2 == null ? ItemStack.EMPTY : cost2.copy();
             result = result == null ? ItemStack.EMPTY : result.copy();
+            nbtStackCost1 = nbtStackCost1 == null ? ItemStack.EMPTY : nbtStackCost1.copy();
+            nbtStackCost2 = nbtStackCost2 == null ? ItemStack.EMPTY : nbtStackCost2.copy();
+            nbtStackResult = nbtStackResult == null ? ItemStack.EMPTY : nbtStackResult.copy();
         }
     }
 
@@ -350,11 +406,23 @@ public final class VisualCraftingTradeHandler {
         final int xp;
         final float priceMultiplier;
         final boolean clearExisting;
+        final boolean nbtMatchCost1;
+        final String nbtDataCost1;
+        final boolean nbtMatchCost2;
+        final String nbtDataCost2;
+        final boolean nbtMatchResult;
+        final String nbtDataResult;
+        final boolean nbtMatchResult2;
+        final String nbtDataResult2;
 
         private TradeDefinition(int level, String cost1, int cost1Count,
                                 String cost2, int cost2Count, String result,
                                 int resultCount, int maxUses, int xp,
-                                float priceMultiplier, boolean clearExisting) {
+                                float priceMultiplier, boolean clearExisting,
+                                boolean nbtMatchCost1, String nbtDataCost1,
+                                boolean nbtMatchCost2, String nbtDataCost2,
+                                boolean nbtMatchResult, String nbtDataResult,
+                                boolean nbtMatchResult2, String nbtDataResult2) {
             this.level = level;
             this.cost1 = cost1;
             this.cost1Count = cost1Count;
@@ -366,6 +434,14 @@ public final class VisualCraftingTradeHandler {
             this.xp = xp;
             this.priceMultiplier = priceMultiplier;
             this.clearExisting = clearExisting;
+            this.nbtMatchCost1 = nbtMatchCost1;
+            this.nbtDataCost1 = nbtDataCost1 == null ? "" : nbtDataCost1;
+            this.nbtMatchCost2 = nbtMatchCost2;
+            this.nbtDataCost2 = nbtDataCost2 == null ? "" : nbtDataCost2;
+            this.nbtMatchResult = nbtMatchResult;
+            this.nbtDataResult = nbtDataResult == null ? "" : nbtDataResult;
+            this.nbtMatchResult2 = nbtMatchResult2;
+            this.nbtDataResult2 = nbtDataResult2 == null ? "" : nbtDataResult2;
         }
 
         static TradeDefinition fromJson(JsonObject json) {
@@ -379,7 +455,8 @@ public final class VisualCraftingTradeHandler {
                 if (!clearExisting) return null;
                 int level = clamp(integer(json, "level", 1), 1, 5);
                 return new TradeDefinition(level, "", 0, "", 0, "", 0,
-                        1, 0, 0.05f, true);
+                        1, 0, 0.05f, true,
+                        false, "", false, "", false, "", false, "");
             }
 
             int level = clamp(integer(json, "level", 1), 1, 5);
@@ -397,8 +474,20 @@ public final class VisualCraftingTradeHandler {
                 cost2Count = 0;
             }
 
+            // NBT 精准匹配（旧文件无字段按未勾选处理）
+            boolean nbtMatchCost1 = json.has("nbtMatchCost1") && json.get("nbtMatchCost1").getAsBoolean();
+            String nbtDataCost1 = json.has("nbtDataCost1") ? json.get("nbtDataCost1").getAsString() : "";
+            boolean nbtMatchCost2 = json.has("nbtMatchCost2") && json.get("nbtMatchCost2").getAsBoolean();
+            String nbtDataCost2 = json.has("nbtDataCost2") ? json.get("nbtDataCost2").getAsString() : "";
+            boolean nbtMatchResult = json.has("nbtMatchResult") && json.get("nbtMatchResult").getAsBoolean();
+            String nbtDataResult = json.has("nbtDataResult") ? json.get("nbtDataResult").getAsString() : "";
+            boolean nbtMatchResult2 = json.has("nbtMatchResult2") && json.get("nbtMatchResult2").getAsBoolean();
+            String nbtDataResult2 = json.has("nbtDataResult2") ? json.get("nbtDataResult2").getAsString() : "";
+
             return new TradeDefinition(level, cost1, cost1Count, cost2, cost2Count,
-                    result, resultCount, maxUses, xp, multiplier, clearExisting);
+                    result, resultCount, maxUses, xp, multiplier, clearExisting,
+                    nbtMatchCost1, nbtDataCost1, nbtMatchCost2, nbtDataCost2,
+                    nbtMatchResult, nbtDataResult, nbtMatchResult2, nbtDataResult2);
         }
 
         private static String string(JsonObject json, String key) {

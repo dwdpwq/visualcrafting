@@ -299,6 +299,15 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     Button mode3BtnConfig;
     boolean mode3DataRequested = false;
     boolean mode3TradeListRequested = false;
+    // Mode3 NBT 精准匹配复选框状态（槽位 0=成本1、1=成本2、81=结果1、80=结果2）
+    boolean mode3NbtMatch0 = false;
+    boolean mode3NbtMatch1 = false;
+    boolean mode3NbtMatch81 = false;
+    boolean mode3NbtMatch80 = false;
+    String mode3NbtData0 = "";
+    String mode3NbtData1 = "";
+    String mode3NbtData81 = "";
+    String mode3NbtData80 = "";
     ItemStack mode5LastSlot0Item = ItemStack.EMPTY;
     Button mode5BtnSave;
     Button mode5BtnDelete;
@@ -2703,6 +2712,10 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             return true;
         }
 
+        if (this.mode == 3 && button == 0 && this.handleMode3NbtClick(mouseX, mouseY)) {
+            return true;
+        }
+
         if (this.mode == 5 && button == 0) {
             int ml = this.leftPos;
             int mt = this.topPos;
@@ -3513,6 +3526,83 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         int x = this.leftPos;
         int y = this.topPos;
         guiGraphics.drawString(this.font, "→", x + 78, y + 87, 0x606060, false);
+
+        // NBT 精准匹配复选框：4 个槽位各自正下方中间（槽位 y=80，高 18，复选框 y=98）
+        this.drawMode3NbtCheckboxes(guiGraphics, mouseX, mouseY);
+    }
+
+    private void drawMode3NbtCheckboxes(GuiGraphics guiGraphics, int mouseX, int mouseY) {
+        int cby = this.topPos + 98;
+        this.drawMode3NbtBox(guiGraphics, this.leftPos + 37, cby, this.mode3NbtMatch0, mouseX, mouseY, "成本1");
+        this.drawMode3NbtBox(guiGraphics, this.leftPos + 61, cby, this.mode3NbtMatch1, mouseX, mouseY, "成本2");
+        this.drawMode3NbtBox(guiGraphics, this.leftPos + 101, cby, this.mode3NbtMatch81, mouseX, mouseY, "结果1");
+        this.drawMode3NbtBox(guiGraphics, this.leftPos + 126, cby, this.mode3NbtMatch80, mouseX, mouseY, "结果2");
+    }
+
+    private void drawMode3NbtBox(GuiGraphics guiGraphics, int x, int y, boolean checked,
+                                 int mouseX, int mouseY, String slotLabel) {
+        guiGraphics.drawString(this.font, checked ? "☑" : "☐", x, y, 4210752, false);
+        if (mouseX >= x && mouseX < x + 8 && mouseY >= y && mouseY < y + 9) {
+            guiGraphics.renderComponentTooltip(this.font, List.of(
+                    Component.literal(checked ? "已启用 NBT 精准匹配" : "点击启用 NBT 精准匹配"),
+                    Component.literal(slotLabel + "：交易时按物品 NBT/组件全等匹配")), mouseX, mouseY);
+        }
+    }
+
+    private boolean handleMode3NbtClick(double mouseX, double mouseY) {
+        int cby = this.topPos + 98;
+        if (this.mode3NbtBoxHit(mouseX, mouseY, this.leftPos + 37, cby)) return this.toggleMode3Nbt(0);
+        if (this.mode3NbtBoxHit(mouseX, mouseY, this.leftPos + 61, cby)) return this.toggleMode3Nbt(1);
+        if (this.mode3NbtBoxHit(mouseX, mouseY, this.leftPos + 101, cby)) return this.toggleMode3Nbt(81);
+        if (this.mode3NbtBoxHit(mouseX, mouseY, this.leftPos + 126, cby)) return this.toggleMode3Nbt(80);
+        return false;
+    }
+
+    private boolean mode3NbtBoxHit(double mouseX, double mouseY, int x, int y) {
+        return mouseX >= (double)x && mouseX < (double)(x + 8) && mouseY >= (double)y && mouseY < (double)(y + 9);
+    }
+
+    private boolean toggleMode3Nbt(int slotIndex) {
+        String data = this.captureMode3NbtData(slotIndex);
+        if (data == null) {
+            this.showStatus("请先在对应槽位放入物品，再启用 NBT 精准匹配");
+            return true;
+        }
+        switch (slotIndex) {
+            case 0:
+                this.mode3NbtMatch0 = !this.mode3NbtMatch0;
+                this.mode3NbtData0 = this.mode3NbtMatch0 ? data : "";
+                break;
+            case 1:
+                this.mode3NbtMatch1 = !this.mode3NbtMatch1;
+                this.mode3NbtData1 = this.mode3NbtMatch1 ? data : "";
+                break;
+            case 81:
+                this.mode3NbtMatch81 = !this.mode3NbtMatch81;
+                this.mode3NbtData81 = this.mode3NbtMatch81 ? data : "";
+                break;
+            case 80:
+                this.mode3NbtMatch80 = !this.mode3NbtMatch80;
+                this.mode3NbtData80 = this.mode3NbtMatch80 ? data : "";
+                break;
+            default:
+                return false;
+        }
+        return true;
+    }
+
+    /** 捕获槽位物品的完整 NBT（含组件），返回 SNBT 字符串；槽位为空或不可用时返回 null。 */
+    private String captureMode3NbtData(int slotIndex) {
+        if (slotIndex < 0 || slotIndex >= this.menu.slots.size()) return null;
+        ItemStack stack = this.menu.slots.get(slotIndex).getItem();
+        if (stack.isEmpty()) return null;
+        if (this.minecraft == null || this.minecraft.level == null) return null;
+        try {
+            return stack.saveOptional(this.minecraft.level.registryAccess()).toString();
+        } catch (Exception e) {
+            System.err.println("[VisualCrafting] Failed to capture slot NBT: " + e.getMessage());
+            return null;
+        }
     }
 
     protected void renderMode5Extras(GuiGraphics guiGraphics, int mouseX, int mouseY) {
@@ -5677,6 +5767,24 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         json.addProperty("xp", Math.clamp(this.mode3Xp, 0, 9999));
         json.addProperty("priceMultiplier", Math.max(0.0f, this.mode3PriceMultiplier));
 
+        // NBT 精准匹配：勾选的槽位把当前物品完整 NBT 一并写入交易 JSON
+        if (this.mode3NbtMatch0 && !this.mode3NbtData0.isEmpty()) {
+            json.addProperty("nbtMatchCost1", true);
+            json.addProperty("nbtDataCost1", this.mode3NbtData0);
+        }
+        if (this.mode3NbtMatch1 && !this.mode3NbtData1.isEmpty()) {
+            json.addProperty("nbtMatchCost2", true);
+            json.addProperty("nbtDataCost2", this.mode3NbtData1);
+        }
+        if (this.mode3NbtMatch81 && !this.mode3NbtData81.isEmpty()) {
+            json.addProperty("nbtMatchResult", true);
+            json.addProperty("nbtDataResult", this.mode3NbtData81);
+        }
+        if (this.mode3NbtMatch80 && !this.mode3NbtData80.isEmpty()) {
+            json.addProperty("nbtMatchResult2", true);
+            json.addProperty("nbtDataResult2", this.mode3NbtData80);
+        }
+
         if (this.mode3SelectedRuntime) {
             json.addProperty("override", true);
             json.addProperty("overrideIndex", Math.max(0, this.mode3SelectedRuntimeIndex));
@@ -5697,7 +5805,17 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     }
 
     private void loadMode3TradeFromJson(String tradeJson) {
-        if (tradeJson == null || tradeJson.isEmpty()) return;
+        if (tradeJson == null || tradeJson.isEmpty()) {
+            this.mode3NbtMatch0 = false;
+            this.mode3NbtMatch1 = false;
+            this.mode3NbtMatch81 = false;
+            this.mode3NbtMatch80 = false;
+            this.mode3NbtData0 = "";
+            this.mode3NbtData1 = "";
+            this.mode3NbtData81 = "";
+            this.mode3NbtData80 = "";
+            return;
+        }
         try {
             JsonObject json = JsonParser.parseString(tradeJson).getAsJsonObject();
             this.setMode3TradeSlot(0, json.has("cost1") ? json.get("cost1").getAsString() : "",
@@ -5714,6 +5832,15 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             this.mode3Xp = Math.clamp(json.has("xp") ? json.get("xp").getAsInt() : 2, 0, 9999);
             this.mode3PriceMultiplier = Math.max(0.0f,
                     json.has("priceMultiplier") ? json.get("priceMultiplier").getAsFloat() : 0.05f);
+            // NBT 精准匹配状态与数据（旧文件无字段按未勾选处理）
+            this.mode3NbtMatch0 = json.has("nbtMatchCost1") && json.get("nbtMatchCost1").getAsBoolean();
+            this.mode3NbtData0 = json.has("nbtDataCost1") ? json.get("nbtDataCost1").getAsString() : "";
+            this.mode3NbtMatch1 = json.has("nbtMatchCost2") && json.get("nbtMatchCost2").getAsBoolean();
+            this.mode3NbtData1 = json.has("nbtDataCost2") ? json.get("nbtDataCost2").getAsString() : "";
+            this.mode3NbtMatch81 = json.has("nbtMatchResult") && json.get("nbtMatchResult").getAsBoolean();
+            this.mode3NbtData81 = json.has("nbtDataResult") ? json.get("nbtDataResult").getAsString() : "";
+            this.mode3NbtMatch80 = json.has("nbtMatchResult2") && json.get("nbtMatchResult2").getAsBoolean();
+            this.mode3NbtData80 = json.has("nbtDataResult2") ? json.get("nbtDataResult2").getAsString() : "";
             if (this.mode3XpEdit != null) {
                 this.mode3XpEdit.setValue(String.valueOf(this.mode3Xp));
             }
@@ -5814,6 +5941,9 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             if (this.mode3TradeIdx < this.mode3TradeJsons.size()) {
                 this.loadMode3TradeFromJson(this.mode3TradeJsons.get(this.mode3TradeIdx));
             }
+        } else {
+            // 无可编辑交易时重置 NBT 复选框状态，避免残留到下一次选择
+            this.loadMode3TradeFromJson(null);
         }
     }
 

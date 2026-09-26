@@ -1,5 +1,6 @@
 package com.visualcrafting.trade;
 
+import net.minecraft.core.component.DataComponentPredicate;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.npc.VillagerTrades;
 import net.minecraft.world.item.ItemStack;
@@ -32,19 +33,29 @@ public final class VisualCraftingTradeOverride implements VillagerTrades.ItemLis
         ItemStack costA = definition.cost1().isEmpty()
                 ? offer.getBaseCostA()
                 : definition.cost1().copy();
+        if (!definition.nbtStackCost1().isEmpty()) costA = definition.nbtStackCost1().copy();
         ItemStack costB = definition.cost2().isEmpty()
                 ? offer.getCostB()
                 : definition.cost2().copy();
+        if (!definition.nbtStackCost2().isEmpty()) costB = definition.nbtStackCost2().copy();
         ItemStack result = definition.result().isEmpty()
                 ? offer.getResult().copy()
                 : definition.result().copy();
+        if (!definition.nbtStackResult().isEmpty()) result = definition.nbtStackResult().copy();
 
         if (costA.isEmpty() || result.isEmpty()) return offer;
 
-        ItemCost itemCostA = new ItemCost(costA.getItem(), Math.max(1, costA.getCount()));
+        // NBT 精准匹配的槽位把完整组件谓词写入 ItemCost，未勾选保持原构造（不附加组件约束）
+        ItemCost itemCostA = !definition.nbtStackCost1().isEmpty()
+                ? new ItemCost(costA.getItemHolder(), Math.max(1, costA.getCount()),
+                        DataComponentPredicate.allOf(costA.getComponents()))
+                : new ItemCost(costA.getItem(), Math.max(1, costA.getCount()));
         Optional<ItemCost> itemCostB = costB.isEmpty()
                 ? Optional.empty()
-                : Optional.of(new ItemCost(costB.getItem(), Math.max(1, costB.getCount())));
+                : Optional.of(!definition.nbtStackCost2().isEmpty()
+                        ? new ItemCost(costB.getItemHolder(), Math.max(1, costB.getCount()),
+                                DataComponentPredicate.allOf(costB.getComponents()))
+                        : new ItemCost(costB.getItem(), Math.max(1, costB.getCount())));
 
         int maxUses = definition.maxUses() > 0 ? definition.maxUses() : offer.getMaxUses();
         int xp = definition.xp() >= 0 ? definition.xp() : offer.getXp();
