@@ -1185,8 +1185,23 @@ public class ModMessages {
                         }
                     }
                 }
+                // 选中已有自定义交易后保存：直接覆盖原文件，真正实现“修改”，而不是每次新增一条重复交易。
+                if (tradeJson.has("editIndex")) {
+                    int editIndex = tradeJson.get("editIndex").getAsInt();
+                    if (editIndex >= 0) {
+                        File editFile = new File(profDir, editIndex + ".json");
+                        if (editFile.isFile()) {
+                            tradeJson.remove("editIndex");
+                            Files.writeString(editFile.toPath(), GSON.toJson(tradeJson), StandardCharsets.UTF_8);
+                            PacketDistributor.sendToPlayer(serverPlayer, new SaveTradeResponsePacket());
+                            return;
+                        }
+                    }
+                    tradeJson.remove("editIndex");
+                }
+
                 File tradeFile = new File(profDir, nextIndex + ".json");
-                Files.writeString(tradeFile.toPath(), packet.tradeJson, StandardCharsets.UTF_8);
+                Files.writeString(tradeFile.toPath(), GSON.toJson(tradeJson), StandardCharsets.UTF_8);
 
                 // 自动 reload 已移除：脚本已写入，需手动执行 /reload 后生效
                 PacketDistributor.sendToPlayer(serverPlayer, new SaveTradeResponsePacket());
