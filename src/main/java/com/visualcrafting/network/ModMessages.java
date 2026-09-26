@@ -1242,9 +1242,7 @@ public class ModMessages {
                 // 运行时原版/Mod 交易使用负索引；删除对应 override 即恢复原始交易。
                 if (packet.tradeIndex < 0) {
                     int runtimeIndex = -packet.tradeIndex - 1;
-                    int level = 1;
-                    // 当前 GUI 以职业 + 等级请求列表；override 文件按职业/等级/索引保存。
-                    // 这里从当前屏幕无法可靠读取等级，因此先按 1-5 查找并删除匹配索引。
+                    int level = Math.clamp(packet.level, 1, 5);
                     boolean removedOverride = false;
                     File overrideRoot = new File(new File(new File(worldDir, "visualcrafting"),
                             "trade_overrides"), "villager");
@@ -1257,10 +1255,8 @@ public class ModMessages {
                         }
                     } else {
                         File dir = new File(overrideRoot, profileDirectoryId(profId));
-                        for (int lv = 1; lv <= 5; lv++) {
-                            File f = new File(dir, lv + "-" + runtimeIndex + ".json");
-                            removedOverride |= f.isFile() && f.delete();
-                        }
+                        File f = new File(dir, level + "-" + runtimeIndex + ".json");
+                        removedOverride = f.isFile() && f.delete();
                     }
                     PacketDistributor.sendToPlayer(serverPlayer, new DeleteTradeResponsePacket());
                     return;
@@ -2078,7 +2074,7 @@ public class ModMessages {
         public Type<SaveTradeResponsePacket> type() { return TYPE; }
     }
 
-    public record RequestDeleteTradePacket(String profId, int tradeIndex) implements CustomPacketPayload {
+    public record RequestDeleteTradePacket(String profId, int tradeIndex, int level) implements CustomPacketPayload {
         public static final Type<RequestDeleteTradePacket> TYPE = new Type<>(DELETE_TRADE_ID);
         public static final StreamCodec<RegistryFriendlyByteBuf, RequestDeleteTradePacket> STREAM_CODEC =
                 StreamCodec.of(RequestDeleteTradePacket::encode, RequestDeleteTradePacket::decode);
@@ -2089,10 +2085,11 @@ public class ModMessages {
         private static void encode(RegistryFriendlyByteBuf buf, RequestDeleteTradePacket pkt) {
             buf.writeUtf(pkt.profId);
             buf.writeVarInt(pkt.tradeIndex);
+            buf.writeVarInt(pkt.level);
         }
 
         private static RequestDeleteTradePacket decode(RegistryFriendlyByteBuf buf) {
-            return new RequestDeleteTradePacket(buf.readUtf(), buf.readVarInt());
+            return new RequestDeleteTradePacket(buf.readUtf(), buf.readVarInt(), buf.readVarInt());
         }
     }
 
