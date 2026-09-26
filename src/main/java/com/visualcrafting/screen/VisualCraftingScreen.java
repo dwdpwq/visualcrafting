@@ -142,6 +142,8 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     static final ItemStack ICON_CREATE = new ItemStack(Items.TRIAL_KEY);
     static final ItemStack ICON_ENHANCE = new ItemStack(Items.OMINOUS_TRIAL_KEY);
     static final int WORLD_HEIGHT = 319;
+    /** 新版统一内容区相对顶部的垂直校正；背包区/底部档位按钮不参与。 */
+    private static final int UI_CONTENT_SHIFT_Y = 24;
     static final Field SLOT_X;
     static final Field SLOT_Y;
 
@@ -713,8 +715,26 @@ public static void logWarn(String message, Throwable cause) {
         // 统一槽位布局必须最后执行：在 initModeXWidgets 覆盖坐标之后再应用最终布局，避免被 init 覆盖
         this.layoutCurrentModeSlots();
 
+        // 统一把工作区控件下移到新版内容面板；底部档位/格式按钮保持原位，避免侵入背包区。
+        this.applyContentWidgetShift();
+
         // 打开 GUI 时请求一次运行时 Block 级禁用名单，保证缓存与按钮状态一致
         PacketDistributor.sendToServer(new RequestDisabledBlocksPacket(), new CustomPacketPayload[0]);
+    }
+
+    /**
+     * 新版 GUI 的工作区从 topPos+32 开始。旧控件仍以 topPos+8/12 等为基准，
+     * 因此统一向下校正 24px。底部按钮（距底部 70px 内）不移动。
+     */
+    private void applyContentWidgetShift() {
+        int bottomThreshold = this.imageHeight - 70;
+        for (GuiEventListener listener : this.children()) {
+            if (!(listener instanceof AbstractWidget widget)) continue;
+            int relativeY = widget.getY() - this.topPos;
+            if (relativeY < bottomThreshold) {
+                widget.setY(widget.getY() + UI_CONTENT_SHIFT_Y);
+            }
+        }
     }
 
     private void onShapedCraft(Button button) {
@@ -2344,6 +2364,11 @@ public static void logWarn(String message, Throwable cause) {
         VisualCraftingScreen.setSlotY(this.menu.slots.get(slotIndex), y);
     }
 
+    /** 主工作区槽位统一下移；玩家背包槽位仍由 layoutPlayerInventorySlots() 独立定位。 */
+    private void setContentSlotPosition(int slotIndex, int x, int y) {
+        this.setSlotPosition(slotIndex, x, y + UI_CONTENT_SHIFT_Y);
+    }
+
     private void hideSlot(int slotIndex) {
         this.setSlotPosition(slotIndex, -2000, -2000);
     }
@@ -2419,13 +2444,13 @@ public static void logWarn(String message, Throwable cause) {
         int activeSlots = gridSize * gridSize;
         for (int i = 0; i < activeSlots; ++i) {
             Slot slot = this.menu.slots.get(i);
-            this.setSlotPosition(i, slot.x + this.gridSlotOffsetX, slot.y + this.gridSlotOffsetY);
+            this.setContentSlotPosition(i, slot.x + this.gridSlotOffsetX, slot.y + this.gridSlotOffsetY);
         }
         for (int i = activeSlots; i < 81; ++i) {
             this.hideSlot(i);
         }
         Slot outSlot = this.menu.slots.get(81);
-        this.setSlotPosition(81, outSlot.x + this.outSlotSlotOffsetX, outSlot.y + this.outSlotSlotOffsetY);
+        this.setContentSlotPosition(81, outSlot.x + this.outSlotSlotOffsetX, outSlot.y + this.outSlotSlotOffsetY);
     }
 
     /**
@@ -2433,8 +2458,8 @@ public static void logWarn(String message, Throwable cause) {
      */
     private void layoutInfusingSlots() {
         this.hideCraftingSlotsAndOutput();
-        this.setSlotPosition(0, 80 + this.infInputSlotSlotOffsetX, 35 + this.infInputSlotSlotOffsetY);
-        this.setSlotPosition(81, 148 + this.infOutSlotSlotOffsetX, 45 + this.infOutSlotSlotOffsetY);
+        this.setContentSlotPosition(0, 80 + this.infInputSlotSlotOffsetX, 35 + this.infInputSlotSlotOffsetY);
+        this.setContentSlotPosition(81, 148 + this.infOutSlotSlotOffsetX, 45 + this.infOutSlotSlotOffsetY);
     }
 
     /**
@@ -2442,8 +2467,8 @@ public static void logWarn(String message, Throwable cause) {
      */
     private void layoutMode2Slots() {
         this.hideCraftingSlotsAndOutput();
-        this.setSlotPosition(0, 71 + this.mode2OffsetX, 42);
-        this.setSlotPosition(1, 71 + this.mode2OffsetX, 70);
+        this.setContentSlotPosition(0, 71 + this.mode2OffsetX, 42);
+        this.setContentSlotPosition(1, 71 + this.mode2OffsetX, 70);
     }
 
     /**
@@ -2453,21 +2478,21 @@ public static void logWarn(String message, Throwable cause) {
     private void layoutMode3Slots() {
         this.hideCraftingSlotsAndOutput();
         // 交易槽a（成本1）→ slot0
-        this.setSlotPosition(0, 32, 80);
+        this.setContentSlotPosition(0, 32, 80);
         // 交易槽b（成本2，清单 slotIndex=83）→ slot1
-        this.setSlotPosition(1, 56, 80);
+        this.setContentSlotPosition(1, 56, 80);
         // 结果槽a（结果1，清单 slotIndex=84）→ slot81（原输出槽）
-        this.setSlotPosition(81, 96, 80);
+        this.setContentSlotPosition(81, 96, 80);
         // 结果槽b（结果2，清单 slotIndex=85）→ slot80
-        this.setSlotPosition(80, 121, 80);
+        this.setContentSlotPosition(80, 121, 80);
         // 自定义村民职业方块槽：只在村民交易页显示。
-        this.setSlotPosition(VisualCraftingMenu.PROFESSION_BLOCK_SLOT, 8, 24);
+        this.setContentSlotPosition(VisualCraftingMenu.PROFESSION_BLOCK_SLOT, 8, 24);
     }
 
     private void layoutMode5Slots() {
         this.hideCraftingSlotsAndOutput();
-        this.setSlotPosition(0, 94, 17);
-        this.setSlotPosition(1, 94, 40);
+        this.setContentSlotPosition(0, 94, 17);
+        this.setContentSlotPosition(1, 94, 40);
     }
 
     /**
@@ -2475,7 +2500,7 @@ public static void logWarn(String message, Throwable cause) {
      */
     private void layoutMode6Slots() {
         this.hideCraftingSlotsAndOutput();
-        this.setSlotPosition(0, 11, 74);
+        this.setContentSlotPosition(0, 11, 74);
     }
 
     /**
@@ -2490,7 +2515,7 @@ public static void logWarn(String message, Throwable cause) {
      */
     private void layoutMode8Slots() {
         this.hideCraftingSlotsAndOutput();
-        this.setSlotPosition(81, 100, 12);
+        this.setContentSlotPosition(81, 100, 12);
     }
 
     private void drawUiPanel(GuiGraphics guiGraphics, int x, int y, int w, int h, int fill, int border) {
@@ -2567,6 +2592,8 @@ public static void logWarn(String message, Throwable cause) {
         guiGraphics.renderOutline(x + 7, invY - 5, w - 14, 75, 0xFF343C45);
         guiGraphics.drawString(this.font, Component.literal("背包"), x + 12, invY - 1, 0xFF9AA3AC, false);
 
+        guiGraphics.pose().pushPose();
+        guiGraphics.pose().translate(0.0f, UI_CONTENT_SHIFT_Y, 0.0f);
         if (this.mode == 0) {
             int gridSize = this.getGridSize();
             int gridX = this.slotAbsX(0) + this.invLineOffsetX, gridY = this.slotAbsY(0) + this.invLineOffsetY;
@@ -2586,6 +2613,7 @@ public static void logWarn(String message, Throwable cause) {
         else if (this.mode == 7) this.renderMode7Extras(guiGraphics);
         else if (this.mode == 8) this.renderMode8Extras(guiGraphics, mouseX, mouseY);
         else this.renderMode2Extras(guiGraphics);
+        guiGraphics.pose().popPose();
 
         for (int slotIdx = VisualCraftingMenu.PLAYER_START; slotIdx < this.menu.slots.size(); ++slotIdx) this.renderSlotOutline(guiGraphics, slotIdx);
     }
