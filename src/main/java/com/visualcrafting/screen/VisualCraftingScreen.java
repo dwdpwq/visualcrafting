@@ -454,18 +454,13 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     private final ItemStack[] ghostItems = new ItemStack[9];
     private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger("VisualCrafting");
 
-        // 新版外框相对旧版内容坐标增加的统一内边距。
-    // 所有 Slot、控件、模式绘制和点击区域继续使用 leftPos/topPos 作为内容原点；
-    // 外框本身使用 panelLeft/panelTop，从而彻底避免“只移动物品栏、其他控件不动”的坐标分裂。
-    private static final int UI_ORIGIN_OFFSET_X = 50;
-    private static final int UI_ORIGIN_OFFSET_Y = 12;
-
+        // 所有 GUI 内容、Slot 和控件统一使用 Minecraft Screen 的 leftPos/topPos 原点。
     private int panelLeft() {
-        return this.leftPos - UI_ORIGIN_OFFSET_X;
+        return this.leftPos;
     }
 
     private int panelTop() {
-        return this.topPos - UI_ORIGIN_OFFSET_Y;
+        return this.topPos;
     }
 
 public static void logWarn(String message, Throwable cause) {
@@ -2329,10 +2324,10 @@ public static void logWarn(String message, Throwable cause) {
         int gridSize = this.getGridSize();
         this.imageWidth = 360 + (gridSize - 3) * 18;
         this.imageHeight = gridSize * 18 + 185;
-        // leftPos/topPos 是“内容坐标原点”，外框向左/上各保留统一内边距。
-        // 这样所有旧的模式坐标会整体进入新版外框，而不是只有背包槽位发生位移。
-        this.leftPos = (this.width - this.imageWidth) / 2 + UI_ORIGIN_OFFSET_X;
-        this.topPos = (this.height - this.imageHeight) / 2 + UI_ORIGIN_OFFSET_Y;
+        // Minecraft 的 leftPos/topPos 就是整个 GUI 的唯一坐标原点。
+        // Slot、Widget、绘制和鼠标命中区域必须全部以此为基准，不能人为再加偏移。
+        this.leftPos = (this.width - this.imageWidth) / 2;
+        this.topPos = (this.height - this.imageHeight) / 2;
     }
 
     /**
