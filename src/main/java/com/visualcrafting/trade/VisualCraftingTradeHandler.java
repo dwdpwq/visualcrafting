@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.HashMap;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Server-side trade editor.
@@ -51,7 +52,37 @@ import java.util.HashMap;
  */
 @EventBusSubscriber(modid = "visualcrafting")
 public final class VisualCraftingTradeHandler {
+    /**
+     * 当前服务器最近一次 VillagerTradesEvent 生成的“原版/其他 Mod”运行时交易。
+     * GUI 查询时从这里读取，避免只扫描 world/visualcrafting/trades 导致原版交易永远为空。
+     */
+    private static final Map<String, Map<Integer, List<VillagerTrades.ItemListing>>> RUNTIME_VILLAGER_TRADES =
+            new ConcurrentHashMap<>();
+    private static final Map<String, List<VillagerTrades.ItemListing>> RUNTIME_WANDERING_TRADES =
+            new ConcurrentHashMap<>();
+
     private VisualCraftingTradeHandler() {}
+
+    public static List<VillagerTrades.ItemListing> getRuntimeVillagerTrades(String professionId, int level) {
+        Map<Integer, List<VillagerTrades.ItemListing>> levels = RUNTIME_VILLAGER_TRADES.get(professionId);
+        if (levels == null) return List.of();
+        List<VillagerTrades.ItemListing> listings = levels.get(level);
+        return listings == null ? List.of() : List.copyOf(listings);
+    }
+
+    public static List<VillagerTrades.ItemListing> getRuntimeWanderingTrades(String pool) {
+        List<VillagerTrades.ItemListing> listings = RUNTIME_WANDERING_TRADES.get(pool);
+        return listings == null ? List.of() : List.copyOf(listings);
+    }
+
+    private static void cacheVillagerRuntimeTrades(String professionId,
+                                                   Map<Integer, List<VillagerTrades.ItemListing>> trades) {
+        Map<Integer, List<VillagerTrades.ItemListing>> copy = new HashMap<>();
+        for (Map.Entry<Integer, List<VillagerTrades.ItemListing>> entry : trades.entrySet()) {
+            copy.put(entry.getKey(), List.copyOf(entry.getValue()));
+        }
+        RUNTIME_VILLAGER_TRADES.put(professionId, copy);
+    }
 
     @SubscribeEvent
     public static void onVillagerTrades(VillagerTradesEvent event) {
@@ -66,6 +97,8 @@ public final class VisualCraftingTradeHandler {
         File root = server.getWorldPath(LevelResource.ROOT).toFile();
 
         applyVillagerOverrides(event.getTrades(), professionId, root);
+        // 先缓存运行时原版/Mod 交易，再追加 GUI 自定义交易；避免 GUI 把自定义交易重复显示为运行时交易。
+        cacheVillagerRuntimeTrades(professionId, event.getTrades());
         loadCustomTrades(event.getTrades(), professionId, root);
     }
 
@@ -77,6 +110,8 @@ public final class VisualCraftingTradeHandler {
         File root = server.getWorldPath(LevelResource.ROOT).toFile();
         applyWanderingOverrides(event.getGenericTrades(), "generic", root);
         applyWanderingOverrides(event.getRareTrades(), "rare", root);
+        RUNTIME_WANDERING_TRADES.put("generic", List.copyOf(event.getGenericTrades()));
+        RUNTIME_WANDERING_TRADES.put("rare", List.copyOf(event.getRareTrades()));
 
         // 将流浪商人作为一个独立编辑项接入 Mode 3：
         // 等级 1 对应普通交易池，等级 2 对应稀有交易池。
