@@ -276,6 +276,9 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     List<String> mode3LevelNames = new ArrayList<String>(Arrays.asList("1", "2", "3", "4", "5"));
     List<String> mode3TradeLabels = new ArrayList<String>();
     List<Integer> mode3TradeIndices = new ArrayList<Integer>();
+    List<String> mode3TradeJsons = new ArrayList<String>();
+    boolean mode3SelectedRuntime = false;
+    int mode3SelectedRuntimeIndex = -1;
     int mode3ProfessionIdx = 0;
     int mode3Level = 1;
     int mode3LevelIdx = 0;
@@ -5570,6 +5573,12 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             this.mode3TradeIdx = Math.max(0, Math.min(index, Math.max(0, this.mode3TradeIndices.size() - 1)));
             if (!this.mode3TradeIndices.isEmpty() && this.mode3TradeIdx < this.mode3TradeIndices.size()) {
                 this.mode3DeleteIndex = this.mode3TradeIndices.get(this.mode3TradeIdx);
+                this.mode3SelectedRuntime = this.mode3DeleteIndex < 0;
+                this.mode3SelectedRuntimeIndex = this.mode3SelectedRuntime
+                        ? -this.mode3DeleteIndex - 1 : -1;
+                if (this.mode3TradeIdx < this.mode3TradeJsons.size()) {
+                    this.loadMode3TradeFromJson(this.mode3TradeJsons.get(this.mode3TradeIdx));
+                }
             }
         });
         this.addRenderableWidget(this.mode3TradeDropdown);
@@ -5668,6 +5677,16 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         json.addProperty("xp", Math.clamp(this.mode3Xp, 0, 9999));
         json.addProperty("priceMultiplier", Math.max(0.0f, this.mode3PriceMultiplier));
 
+        if (this.mode3SelectedRuntime) {
+            json.addProperty("override", true);
+            json.addProperty("overrideIndex", Math.max(0, this.mode3SelectedRuntimeIndex));
+        } else if (!this.mode3TradeIndices.isEmpty()
+                && this.mode3TradeIdx >= 0
+                && this.mode3TradeIdx < this.mode3TradeIndices.size()
+                && this.mode3TradeIndices.get(this.mode3TradeIdx) >= 0) {
+            json.addProperty("editIndex", this.mode3TradeIndices.get(this.mode3TradeIdx));
+        }
+
         PacketDistributor.sendToServer(new ModMessages.SaveTradePacket(
                 this.mode3ProfessionIds.get(this.mode3ProfessionIdx), json.toString()), new CustomPacketPayload[0]);
     }
@@ -5675,6 +5694,50 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     private String getItemIdForTradeSlot(int slotIndex) {
         ItemStack stack = this.menu.slots.get(slotIndex).getItem();
         return stack.isEmpty() ? "" : BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+    }
+
+    private void loadMode3TradeFromJson(String tradeJson) {
+        if (tradeJson == null || tradeJson.isEmpty()) return;
+        try {
+            JsonObject json = JsonParser.parseString(tradeJson).getAsJsonObject();
+            this.setMode3TradeSlot(0, json.has("cost1") ? json.get("cost1").getAsString() : "",
+                    json.has("cost1Count") ? json.get("cost1Count").getAsInt() : 1);
+            this.setMode3TradeSlot(1, json.has("cost2") ? json.get("cost2").getAsString() : "",
+                    json.has("cost2Count") ? json.get("cost2Count").getAsInt() : 0);
+            this.setMode3TradeSlot(81, json.has("result") ? json.get("result").getAsString() : "",
+                    json.has("resultCount") ? json.get("resultCount").getAsInt() : 1);
+
+            this.mode3Cost1Count = Math.clamp(json.has("cost1Count") ? json.get("cost1Count").getAsInt() : 1, 1, 64);
+            this.mode3Cost2Count = Math.clamp(json.has("cost2Count") ? json.get("cost2Count").getAsInt() : 0, 0, 64);
+            this.mode3ResultCount = Math.clamp(json.has("resultCount") ? json.get("resultCount").getAsInt() : 1, 1, 64);
+            this.mode3MaxUses = Math.clamp(json.has("maxUses") ? json.get("maxUses").getAsInt() : 12, 1, 9999);
+            this.mode3Xp = Math.clamp(json.has("xp") ? json.get("xp").getAsInt() : 2, 0, 9999);
+            this.mode3PriceMultiplier = Math.max(0.0f,
+                    json.has("priceMultiplier") ? json.get("priceMultiplier").getAsFloat() : 0.05f);
+            if (this.mode3XpEdit != null) {
+                this.mode3XpEdit.setValue(String.valueOf(this.mode3Xp));
+            }
+        } catch (Exception e) {
+            System.err.println("[VisualCrafting] Failed to load selected trade: " + e.getMessage());
+        }
+    }
+
+    private void setMode3TradeSlot(int slotIndex, String itemId, int count) {
+        if (slotIndex < 0 || slotIndex >= this.menu.slots.size()) return;
+        if (itemId == null || itemId.isEmpty()) {
+            this.menu.slots.get(slotIndex).set(ItemStack.EMPTY);
+            return;
+        }
+        try {
+            var optional = BuiltInRegistries.ITEM.getOptional(ResourceLocation.parse(itemId));
+            if (optional.isEmpty()) {
+                this.menu.slots.get(slotIndex).set(ItemStack.EMPTY);
+                return;
+            }
+            this.menu.slots.get(slotIndex).set(new ItemStack(optional.get(), Math.clamp(count, 1, 64)));
+        } catch (Exception e) {
+            this.menu.slots.get(slotIndex).set(ItemStack.EMPTY);
+        }
     }
 
     private void onMode3Delete(Button button) {
@@ -5722,7 +5785,8 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         this.requestMode3TradeList();
     }
 
-    private void updateMode3TradeList(String profId, int level, List<String> labels, List<Integer> indices) {
+    private void updateMode3TradeList(String profId, int level, List<String> labels,
+                                         List<Integer> indices, List<String> tradeJsons) {
         if (this.mode3ProfessionIds.isEmpty()
                 || this.mode3ProfessionIdx < 0
                 || this.mode3ProfessionIdx >= this.mode3ProfessionIds.size()) {
@@ -5733,6 +5797,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
 
         this.mode3TradeLabels = new ArrayList<String>(labels);
         this.mode3TradeIndices = new ArrayList<Integer>(indices);
+        this.mode3TradeJsons = new ArrayList<String>(tradeJsons == null ? List.of() : tradeJsons);
         this.mode3TradeIdx = Math.clamp(this.mode3TradeIdx, 0, Math.max(0, this.mode3TradeLabels.size() - 1));
         if (this.mode3TradeDropdown != null) {
             List<String> display = this.mode3TradeLabels.isEmpty()
@@ -5746,6 +5811,11 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     }
 
     private void onSaveTradeResponse() {
+        this.showStatus("交易已保存");
+        this.requestMode3TradeList();
+    }
+
+
         this.showStatus("交易已保存");
         this.requestMode3TradeList();
     }
