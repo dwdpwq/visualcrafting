@@ -634,8 +634,8 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     public VisualCraftingScreen(VisualCraftingMenu visualCraftingMenu, Inventory inventory, Component component) {
         super(visualCraftingMenu, inventory, component);
         int gridSize = this.getGridSize();
-        this.imageWidth = 260 + (gridSize - 3) * 18;
-        this.imageHeight = gridSize * 18 + 161;
+        this.imageWidth = 360 + (gridSize - 3) * 18;
+        this.imageHeight = gridSize * 18 + 185;
     }
 
     protected void init() {
@@ -2313,8 +2313,8 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
      */
     private void updateGuiSize() {
         int gridSize = this.getGridSize();
-        this.imageWidth = 260 + (gridSize - 3) * 18;
-        this.imageHeight = gridSize * 18 + 161;
+        this.imageWidth = 360 + (gridSize - 3) * 18;
+        this.imageHeight = gridSize * 18 + 185;
         this.leftPos = (this.width - this.imageWidth) / 2;
         this.topPos = (this.height - this.imageHeight) / 2;
     }
@@ -2393,9 +2393,9 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         } else {
             invBaseY = this.imageHeight - 83;
         }
-        for (int slotIdx = 82; slotIdx < this.menu.slots.size(); ++slotIdx) {
-            int col = (slotIdx - 82) % 9;
-            int row = (slotIdx - 82) / 9;
+        for (int slotIdx = VisualCraftingMenu.PLAYER_START; slotIdx < this.menu.slots.size(); ++slotIdx) {
+            int col = (slotIdx - VisualCraftingMenu.PLAYER_START) % 9;
+            int row = (slotIdx - VisualCraftingMenu.PLAYER_START) / 9;
             this.setSlotPosition(slotIdx, 8 + col * 18 + invOffsetX, invBaseY + row * 18 + invOffsetY);
         }
     }
@@ -2449,6 +2449,8 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         this.setSlotPosition(81, 96, 80);
         // 结果槽b（结果2，清单 slotIndex=85）→ slot80
         this.setSlotPosition(80, 121, 80);
+        // 自定义村民职业方块槽：只在村民交易页显示。
+        this.setSlotPosition(VisualCraftingMenu.PROFESSION_BLOCK_SLOT, 8, 24);
     }
 
     private void layoutMode5Slots() {
@@ -2480,99 +2482,101 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         this.setSlotPosition(81, 100, 12);
     }
 
+    private void drawUiPanel(GuiGraphics guiGraphics, int x, int y, int w, int h, int fill, int border) {
+        guiGraphics.fill(x, y, x + w, y + h, fill);
+        guiGraphics.renderOutline(x, y, w, h, border);
+    }
+
+    private void drawUiSection(GuiGraphics guiGraphics, String title, int x, int y, int w, int h) {
+        this.drawUiPanel(guiGraphics, x, y, w, h, 0xCC11151A, 0xFF3A424B);
+        guiGraphics.fill(x, y, x + w, y + 1, 0xFF6B737C);
+        if (title != null && !title.isEmpty()) guiGraphics.drawString(this.font, Component.literal(title), x + 7, y + 5, 0xFFE8ECEF, false);
+    }
+
+    private void drawUiTab(GuiGraphics guiGraphics, int x, int y, ItemStack icon, ResourceLocation texture, boolean active, boolean hover) {
+        int fill = active ? 0xFF293B2E : (hover ? 0xFF242A30 : 0xFF171B20);
+        int border = active ? 0xFF70D48A : (hover ? 0xFF59636D : 0xFF343B43);
+        guiGraphics.fill(x, y, x + 24, y + 24, fill);
+        guiGraphics.renderOutline(x, y, 24, 24, border);
+        if (texture != null) guiGraphics.blit(texture, x + 4, y + 4, 0.0f, 0.0f, 16, 16, 16, 16);
+        else if (!icon.isEmpty()) guiGraphics.renderItem(icon, x + 4, y + 4);
+        if (active) guiGraphics.fill(x + 3, y + 22, x + 21, y + 24, 0xFF6BE08A);
+    }
+
+    private String getUiModeName() {
+        return switch (this.mode) {
+            case 0 -> "合成";
+            case 1 -> "灌注";
+            case 2 -> "矿物";
+            case 3 -> "村民交易";
+            case 5 -> "食物";
+            case 6 -> "命名牌";
+            case 7 -> "创建物品";
+            case 8 -> "物品增强";
+            default -> "Visual Crafting";
+        };
+    }
+
     protected void renderBg(GuiGraphics guiGraphics, float partialTicks, int mouseX, int mouseY) {
         RenderSystem.setShader(GameRenderer::getPositionTexShader);
         RenderSystem.setShaderColor(1.0f, 1.0f, 1.0f, 1.0f);
-        guiGraphics.fill(this.leftPos, this.topPos, this.leftPos + this.imageWidth, this.topPos + this.imageHeight, -1072689136);
-        int tabWidth = 24;
-        int tabHeight = 24;
-        int tabGap = 3;
-        int tabStartX = this.leftPos + 8;
-        int tabStartY = this.topPos - 26;
-        int craftIconX = tabStartX + 4;
-        int craftIconY = tabStartY + 4;
-        guiGraphics.blit(TAB_CRAFT, craftIconX, craftIconY, 0.0f, 0.0f, 16, 16, 16, 16);
-        if (this.mode == 0) {
-            guiGraphics.renderOutline(tabStartX, tabStartY, tabWidth, tabHeight, -256);
+
+        int x = this.leftPos, y = this.topPos, w = this.imageWidth, h = this.imageHeight;
+        guiGraphics.fill(x, y, x + w, y + h, 0xF20D1014);
+        guiGraphics.renderOutline(x, y, w, h, 0xFF59636D);
+        guiGraphics.fill(x + 1, y + 1, x + w - 1, y + 27, 0xFF171C22);
+        guiGraphics.fill(x + 1, y + 27, x + w - 1, y + 28, 0xFF313942);
+        guiGraphics.drawString(this.font, Component.literal("Visual Crafting"), x + 9, y + 7, 0xFFF1F4F6, false);
+        guiGraphics.drawString(this.font, Component.literal(this.getUiModeName()), x + 104, y + 7, 0xFF8ED8A1, false);
+
+        int tabWidth = 24, tabGap = 4, tabStartX = x + 8, tabStartY = y - 29;
+        int[] tabX = new int[8];
+        for (int i = 0; i < tabX.length; ++i) tabX[i] = tabStartX + i * (tabWidth + tabGap);
+        for (int i = 0; i < tabX.length; ++i) {
+            boolean hover = mouseX >= tabX[i] && mouseX < tabX[i] + tabWidth && mouseY >= tabStartY && mouseY < tabStartY + 24;
+            switch (i) {
+                case 0 -> this.drawUiTab(guiGraphics, tabX[i], tabStartY, ItemStack.EMPTY, TAB_CRAFT, this.mode == 0, hover);
+                case 1 -> this.drawUiTab(guiGraphics, tabX[i], tabStartY, ItemStack.EMPTY, TAB_INFUSE, this.mode == 1, hover);
+                case 2 -> this.drawUiTab(guiGraphics, tabX[i], tabStartY, ItemStack.EMPTY, TAB_ORE, this.mode == 2, hover);
+                case 3 -> this.drawUiTab(guiGraphics, tabX[i], tabStartY, ICON_EMERALD, null, this.mode == 3, hover);
+                case 4 -> this.drawUiTab(guiGraphics, tabX[i], tabStartY, ItemStack.EMPTY, TAB_FOOD, this.mode == 5, hover);
+                case 5 -> this.drawUiTab(guiGraphics, tabX[i], tabStartY, ICON_NAME, null, this.mode == 6, hover);
+                case 6 -> this.drawUiTab(guiGraphics, tabX[i], tabStartY, ICON_CREATE, null, this.mode == 7, hover);
+                case 7 -> this.drawUiTab(guiGraphics, tabX[i], tabStartY, ICON_ENHANCE, null, this.mode == 8, hover);
+            }
         }
 
-        int infuseIconX = tabStartX + tabWidth + tabGap + 4;
-        guiGraphics.blit(TAB_INFUSE, infuseIconX, craftIconY, 0.0f, 0.0f, 16, 16, 16, 16);
-        if (this.mode == 1) {
-            guiGraphics.renderOutline(tabStartX + tabWidth + tabGap, tabStartY, tabWidth, tabHeight, -256);
-        }
+        int contentTop = y + 32, contentBottom = y + h - 87;
+        int mainW = Math.max(210, w - 112);
+        this.drawUiSection(guiGraphics, "工作区", x + 7, contentTop, mainW, Math.max(90, contentBottom - contentTop));
+        this.drawUiSection(guiGraphics, "信息", x + w - 98, contentTop, 91, Math.max(90, contentBottom - contentTop));
 
-        int oreIconX = tabStartX + (tabWidth + tabGap) * 2 + 4;
-        guiGraphics.blit(TAB_ORE, oreIconX, craftIconY, 0.0f, 0.0f, 16, 16, 16, 16);
-        if (this.mode == 2) {
-            guiGraphics.renderOutline(tabStartX + (tabWidth + tabGap) * 2, tabStartY, tabWidth, tabHeight, -256);
-        }
-
-        int tabTradeIconX = tabStartX + (tabWidth + tabGap) * 3 + 4;
-        guiGraphics.renderItem(ICON_EMERALD, tabTradeIconX, craftIconY);
-        if (this.mode == 3) {
-            guiGraphics.renderOutline(tabStartX + (tabWidth + tabGap) * 3, tabStartY, tabWidth, tabHeight, -256);
-        }
-
-        int tabFoodIconX = tabStartX + (tabWidth + tabGap) * 4 + 4;
-        guiGraphics.blit(TAB_FOOD, tabFoodIconX, craftIconY, 0.0f, 0.0f, 16, 16, 16, 16);
-        if (this.mode == 5) {
-            guiGraphics.renderOutline(tabStartX + (tabWidth + tabGap) * 4, tabStartY, tabWidth, tabHeight, -256);
-        }
-
-        int tabNameIconX = tabStartX + (tabWidth + tabGap) * 5 + 4;
-        guiGraphics.renderItem(ICON_NAME, tabNameIconX, craftIconY);
-        if (this.mode == 6) {
-            guiGraphics.renderOutline(tabStartX + (tabWidth + tabGap) * 5, tabStartY, tabWidth, tabHeight, -256);
-        }
-
-        int tabCreateIconX = tabStartX + (tabWidth + tabGap) * 6 + 4;
-        guiGraphics.renderItem(ICON_CREATE, tabCreateIconX, craftIconY);
-        if (this.mode == 7) {
-            guiGraphics.renderOutline(tabStartX + (tabWidth + tabGap) * 6, tabStartY, tabWidth, tabHeight, -256);
-        }
-
-        int tabEnhanceIconX = tabStartX + (tabWidth + tabGap) * 7 + 4;
-        guiGraphics.renderItem(ICON_ENHANCE, tabEnhanceIconX, craftIconY);
-        if (this.mode == 8) {
-            guiGraphics.renderOutline(tabStartX + (tabWidth + tabGap) * 7, tabStartY, tabWidth, tabHeight, -256);
-        }
+        int invY = y + h - 82;
+        guiGraphics.fill(x + 7, invY - 5, x + w - 7, y + h - 7, 0xD9161B20);
+        guiGraphics.renderOutline(x + 7, invY - 5, w - 14, 75, 0xFF343C45);
+        guiGraphics.drawString(this.font, Component.literal("背包"), x + 12, invY - 1, 0xFF9AA3AC, false);
 
         if (this.mode == 0) {
             int gridSize = this.getGridSize();
-            int gridX = this.slotAbsX(0) + this.invLineOffsetX;
-            int gridY = this.slotAbsY(0) + this.invLineOffsetY;
-            guiGraphics.renderOutline(gridX, gridY, gridSize * 18, gridSize * 18, -1);
-            for (int i = 0; i < gridSize; ++i) {
-                for (int j = 0; j < gridSize; ++j) {
-                    this.renderSlotOutline(guiGraphics, i * gridSize + j);
-                }
-
-            }
-
+            int gridX = this.slotAbsX(0) + this.invLineOffsetX, gridY = this.slotAbsY(0) + this.invLineOffsetY;
+            guiGraphics.renderOutline(gridX, gridY, gridSize * 18, gridSize * 18, 0xFFD7DDE2);
+            for (int i = 0; i < gridSize; ++i) for (int j = 0; j < gridSize; ++j) this.renderSlotOutline(guiGraphics, i * gridSize + j);
             this.renderSlotOutline(guiGraphics, 81);
             this.renderCraftList(guiGraphics, mouseX, mouseY);
         } else if (this.mode == 1) {
             this.renderInfusingExtras(guiGraphics);
             this.renderInfuseList(guiGraphics, mouseX, mouseY);
         } else if (this.mode == 3) {
+            this.renderSlotOutline(guiGraphics, VisualCraftingMenu.PROFESSION_BLOCK_SLOT);
             this.renderMode3Extras(guiGraphics, mouseX, mouseY);
-        } else if (this.mode == 5) {
-            this.renderMode5Extras(guiGraphics, mouseX, mouseY);
-        } else if (this.mode == 6) {
-            this.renderNameExtras(guiGraphics, mouseX, mouseY);
-        } else if (this.mode == 7) {
-            this.renderMode7Extras(guiGraphics);
-        } else if (this.mode == 8) {
-            this.renderMode8Extras(guiGraphics, mouseX, mouseY);
-        } else {
-            this.renderMode2Extras(guiGraphics);
         }
+        else if (this.mode == 5) this.renderMode5Extras(guiGraphics, mouseX, mouseY);
+        else if (this.mode == 6) this.renderNameExtras(guiGraphics, mouseX, mouseY);
+        else if (this.mode == 7) this.renderMode7Extras(guiGraphics);
+        else if (this.mode == 8) this.renderMode8Extras(guiGraphics, mouseX, mouseY);
+        else this.renderMode2Extras(guiGraphics);
 
-        for (int slotIdx = 82; slotIdx < this.menu.slots.size(); ++slotIdx) {
-            this.renderSlotOutline(guiGraphics, slotIdx);
-        }
-
+        for (int slotIdx = VisualCraftingMenu.PLAYER_START; slotIdx < this.menu.slots.size(); ++slotIdx) this.renderSlotOutline(guiGraphics, slotIdx);
     }
 
     private void renderCraftList(GuiGraphics guiGraphics, int mouseX, int mouseY) {
@@ -2639,9 +2643,9 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         }
 
         int tabWidth = 24;
-        int tabGap = 3;
+        int tabGap = 4;
         int tabStartX = this.leftPos + 8;
-        int tabStartY = this.topPos - 26;
+        int tabStartY = this.topPos - 29;
         if (mouseX >= (double)tabStartX && mouseX < (double)(tabStartX + tabWidth) && mouseY >= (double)tabStartY && mouseY < (double)(tabStartY + 24)) {
             if (this.mode != 0) {
                 this.switchMode(0);
@@ -3384,6 +3388,10 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         guiGraphics.drawString(this.font, "矿物", x + 54, mineralY + 5, 0x404040, false);
         guiGraphics.drawString(this.font, "伴生", x + 54, byproductY + 5, 0x606060, false);
 
+        // 职业方块槽：放置任意方块物品，用于保存该自定义职业的工作站方块。
+        this.renderSlotOutline(guiGraphics, VisualCraftingMenu.PROFESSION_BLOCK_SLOT);
+        guiGraphics.drawString(this.font, "职业方块", this.leftPos + 8, this.topPos + 12, 0xFF9AA3AC, false);
+
         this.renderSlotOutline(guiGraphics, 0);
         this.renderSlotOutline(guiGraphics, 1);
 
@@ -3666,10 +3674,10 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             Slot returnSlot = slots.get(81);
             fx.setInt(returnSlot, 95);
             fy.setInt(returnSlot, 41);
-            for (int i = 82; i < slots.size(); i++) {
+            for (int i = VisualCraftingMenu.PLAYER_START; i < slots.size(); i++) {
                 Slot s = slots.get(i);
-                int col = (i - 82) % 9;
-                int row = (i - 82) / 9;
+                int col = (i - VisualCraftingMenu.PLAYER_START) % 9;
+                int row = (i - VisualCraftingMenu.PLAYER_START) / 9;
                 fx.setInt(s, 8 + col * 18);
                 fy.setInt(s, imageHeight - 83 + row * 18);
             }
@@ -3712,10 +3720,10 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         int gridSize = this.getGridSize();
         int invBaseY = 13 + gridSize * 18;
         int hotbarBaseY = invBaseY + 8;
-        for (slotIdx = 82; slotIdx < this.menu.slots.size(); ++slotIdx) {
+        for (slotIdx = VisualCraftingMenu.PLAYER_START; slotIdx < this.menu.slots.size(); ++slotIdx) {
             Slot slot = this.menu.slots.get(slotIdx);
-            int col = (slotIdx - 82) % 9;
-            int row = (slotIdx - 82) / 9;
+            int col = (slotIdx - VisualCraftingMenu.PLAYER_START) % 9;
+            int row = (slotIdx - VisualCraftingMenu.PLAYER_START) / 9;
             VisualCraftingScreen.setSlotX(slot, 8 + col * 18 + this.invSlotSlotOffsetX);
             VisualCraftingScreen.setSlotY(slot, hotbarBaseY + row * 18 + this.invSlotSlotOffsetY);
         }
@@ -3742,10 +3750,10 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             this.funcButtons.add(this.addRenderableWidget(wrappableButton));
             this.funcButtons.add(this.addRenderableWidget(wrappableButton2));
             this.funcButtons.add(this.addRenderableWidget(wrappableButton3));
-            for (int i = 82; i < this.menu.slots.size(); ++i) {
+            for (int i = VisualCraftingMenu.PLAYER_START; i < this.menu.slots.size(); ++i) {
                 Slot slot = this.menu.slots.get(i);
-                int col = (i - 82) % 9;
-                int row = (i - 82) / 9;
+                int col = (i - VisualCraftingMenu.PLAYER_START) % 9;
+                int row = (i - VisualCraftingMenu.PLAYER_START) / 9;
                 VisualCraftingScreen.setSlotX(slot, 8 + col * 18);
                 VisualCraftingScreen.setSlotY(slot, this.imageHeight - 83 + row * 18);
             }
@@ -3759,10 +3767,10 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             VisualCraftingScreen.setSlotY(this.menu.slots.get(i), -2000);
         }
 
-        for (int i = 82; i < this.menu.slots.size(); ++i) {
+        for (int i = VisualCraftingMenu.PLAYER_START; i < this.menu.slots.size(); ++i) {
             Slot slot = this.menu.slots.get(i);
-            int col = (i - 82) % 9;
-            int row = (i - 82) / 9;
+            int col = (i - VisualCraftingMenu.PLAYER_START) % 9;
+            int row = (i - VisualCraftingMenu.PLAYER_START) / 9;
             VisualCraftingScreen.setSlotX(slot, 8 + col * 18);
             VisualCraftingScreen.setSlotY(slot, this.imageHeight - 83 + row * 18);
         }
@@ -4154,11 +4162,11 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
 
         }
 
-        for (int i = 82; i < this.menu.slots.size(); ++i) {
+        for (int i = VisualCraftingMenu.PLAYER_START; i < this.menu.slots.size(); ++i) {
             Slot slot = this.menu.slots.get(i);
             if (visible) {
-                int col = (i - 82) % 9;
-                int row = (i - 82) / 9;
+                int col = (i - VisualCraftingMenu.PLAYER_START) % 9;
+                int row = (i - VisualCraftingMenu.PLAYER_START) / 9;
                 VisualCraftingScreen.setSlotX(slot, 8 + col * 18);
                 VisualCraftingScreen.setSlotY(slot, this.imageHeight - 83 + row * 18);
             } else {
@@ -4385,10 +4393,10 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             VisualCraftingScreen.setSlotY(this.menu.slots.get(slotIdx), -2000);
         }
 
-        for (slotIdx = 82; slotIdx < this.menu.slots.size(); ++slotIdx) {
+        for (slotIdx = VisualCraftingMenu.PLAYER_START; slotIdx < this.menu.slots.size(); ++slotIdx) {
             Slot slot = this.menu.slots.get(slotIdx);
-            int col = (slotIdx - 82) % 9;
-            int row = (slotIdx - 82) / 9;
+            int col = (slotIdx - VisualCraftingMenu.PLAYER_START) % 9;
+            int row = (slotIdx - VisualCraftingMenu.PLAYER_START) / 9;
             VisualCraftingScreen.setSlotX(slot, 8 + col * 18);
             VisualCraftingScreen.setSlotY(slot, this.imageHeight - 83 + row * 18);
         }
@@ -4548,10 +4556,10 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
 
         VisualCraftingScreen.setSlotX(this.menu.slots.get(81), 100);
         VisualCraftingScreen.setSlotY(this.menu.slots.get(81), 12);
-        for (int i = 82; i < this.menu.slots.size(); ++i) {
+        for (int i = VisualCraftingMenu.PLAYER_START; i < this.menu.slots.size(); ++i) {
             Slot slot = this.menu.slots.get(i);
-            int col = (i - 82) % 9;
-            int row = (i - 82) / 9;
+            int col = (i - VisualCraftingMenu.PLAYER_START) % 9;
+            int row = (i - VisualCraftingMenu.PLAYER_START) / 9;
             VisualCraftingScreen.setSlotX(slot, 8 + col * 18);
             VisualCraftingScreen.setSlotY(slot, this.imageHeight - 83 + row * 18);
         }
@@ -5404,10 +5412,10 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             VisualCraftingScreen.setSlotY(this.menu.slots.get(slotIdx), -2000);
         }
 
-        for (slotIdx = 82; slotIdx < this.menu.slots.size(); ++slotIdx) {
+        for (slotIdx = VisualCraftingMenu.PLAYER_START; slotIdx < this.menu.slots.size(); ++slotIdx) {
             Slot slot = this.menu.slots.get(slotIdx);
-            int col = (slotIdx - 82) % 9;
-            int row = (slotIdx - 82) / 9;
+            int col = (slotIdx - VisualCraftingMenu.PLAYER_START) % 9;
+            int row = (slotIdx - VisualCraftingMenu.PLAYER_START) / 9;
             VisualCraftingScreen.setSlotX(slot, 8 + col * 18);
             VisualCraftingScreen.setSlotY(slot, this.imageHeight - 83 + row * 18);
         }
@@ -5767,6 +5775,12 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         json.addProperty("xp", Math.clamp(this.mode3Xp, 0, 9999));
         json.addProperty("priceMultiplier", Math.max(0.0f, this.mode3PriceMultiplier));
 
+        // 自定义村民职业方块：保存槽位中的方块物品 ID。
+        ItemStack professionBlock = this.menu.slots.get(VisualCraftingMenu.PROFESSION_BLOCK_SLOT).getItem();
+        if (!professionBlock.isEmpty() && professionBlock.getItem() instanceof net.minecraft.world.item.BlockItem) {
+            json.addProperty("professionBlock", BuiltInRegistries.ITEM.getKey(professionBlock.getItem()).toString());
+        }
+
         // NBT 精准匹配：勾选的槽位把当前物品完整 NBT 一并写入交易 JSON
         if (this.mode3NbtMatch0 && !this.mode3NbtData0.isEmpty()) {
             json.addProperty("nbtMatchCost1", true);
@@ -5806,6 +5820,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
 
     private void loadMode3TradeFromJson(String tradeJson) {
         if (tradeJson == null || tradeJson.isEmpty()) {
+            this.menu.slots.get(VisualCraftingMenu.PROFESSION_BLOCK_SLOT).set(ItemStack.EMPTY);
             this.mode3NbtMatch0 = false;
             this.mode3NbtMatch1 = false;
             this.mode3NbtMatch81 = false;
@@ -5832,6 +5847,24 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             this.mode3Xp = Math.clamp(json.has("xp") ? json.get("xp").getAsInt() : 2, 0, 9999);
             this.mode3PriceMultiplier = Math.max(0.0f,
                     json.has("priceMultiplier") ? json.get("priceMultiplier").getAsFloat() : 0.05f);
+
+            // 恢复自定义村民职业方块。
+            String professionBlockId = json.has("professionBlock") ? json.get("professionBlock").getAsString() : "";
+            if (!professionBlockId.isEmpty()) {
+                try {
+                    Item professionBlockItem = BuiltInRegistries.ITEM.get(ResourceLocation.parse(professionBlockId));
+                    if (professionBlockItem != null && professionBlockItem instanceof net.minecraft.world.item.BlockItem) {
+                        this.menu.slots.get(VisualCraftingMenu.PROFESSION_BLOCK_SLOT).set(new ItemStack(professionBlockItem));
+                    } else {
+                        this.menu.slots.get(VisualCraftingMenu.PROFESSION_BLOCK_SLOT).set(ItemStack.EMPTY);
+                    }
+                } catch (Exception ignored) {
+                    this.menu.slots.get(VisualCraftingMenu.PROFESSION_BLOCK_SLOT).set(ItemStack.EMPTY);
+                }
+            } else {
+                this.menu.slots.get(VisualCraftingMenu.PROFESSION_BLOCK_SLOT).set(ItemStack.EMPTY);
+            }
+
             // 同步等级：列表现在展示全部等级交易，选中时等级下拉跟随文件等级，
             // 避免编辑 [Lv2] 交易时误按当前等级(1)保存导致交易被降级。
             if (json.has("level")) {
@@ -5973,10 +6006,10 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             VisualCraftingScreen.setSlotY(this.menu.slots.get(slotIdx), -2000);
         }
 
-        for (slotIdx = 82; slotIdx < this.menu.slots.size(); ++slotIdx) {
+        for (slotIdx = VisualCraftingMenu.PLAYER_START; slotIdx < this.menu.slots.size(); ++slotIdx) {
             Slot slot = this.menu.slots.get(slotIdx);
-            int col = (slotIdx - 82) % 9;
-            int row = (slotIdx - 82) / 9;
+            int col = (slotIdx - VisualCraftingMenu.PLAYER_START) % 9;
+            int row = (slotIdx - VisualCraftingMenu.PLAYER_START) / 9;
             VisualCraftingScreen.setSlotX(slot, 8 + col * 18);
             VisualCraftingScreen.setSlotY(slot, this.imageHeight - 83 + row * 18);
         }
