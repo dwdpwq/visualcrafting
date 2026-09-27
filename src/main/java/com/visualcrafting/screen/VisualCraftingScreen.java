@@ -3550,7 +3550,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         // 数量 / 参数只保留必要的短标题，避免长段提示文字占据交易编辑区。
         int x = this.leftPos;
         int y = this.topPos;
-        guiGraphics.drawString(this.font, "→", x + 78, y + 87, 0x606060, false);
+        guiGraphics.drawString(this.font, "→", x + 78, y + 92, 0x606060, false);
 
         // NBT 精准匹配复选框：4 个槽位各自正下方中间（槽位 y=80，高 18，复选框 y=98）
         this.drawMode3NbtCheckboxes(guiGraphics, mouseX, mouseY);
@@ -5706,14 +5706,14 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
                 .pos(this.leftPos + 8, this.topPos + 31).size(this.autoButtonWidth(Component.literal("删除交易")), BUTTON_HEIGHT).build();
         this.mode3BtnConfig = Button.builder(Component.translatable("gui.visualcrafting.config"), this::onMode3Config)
                 .pos(this.leftPos + 8, this.topPos + 50).size(this.autoButtonWidth(Component.translatable("gui.visualcrafting.config")), BUTTON_HEIGHT).build();
-        this.mode3BtnClearJobSite = Button.builder(Component.literal("清除职业方块"), this::onMode3ClearJobSite)
-                .pos(this.leftPos + 8, this.topPos + 69).size(this.autoButtonWidth(Component.literal("清除职业方块")), BUTTON_HEIGHT).build();
+        this.mode3BtnClearJobSite = Button.builder(Component.literal("变更职业方块"), this::onMode3ClearJobSite)
+                .pos(this.leftPos + 8, this.topPos + 69).size(this.autoButtonWidth(Component.literal("变更职业方块")), BUTTON_HEIGHT).build();
         this.funcButtons.add(this.addRenderableWidget(this.mode3BtnDelete));
         this.funcButtons.add(this.addRenderableWidget(this.mode3BtnSave));
         this.funcButtons.add(this.addRenderableWidget(this.mode3BtnConfig));
         this.funcButtons.add(this.addRenderableWidget(this.mode3BtnClearJobSite));
 
-        this.mode3XpEdit = this.createMode3Edit(this.leftPos + 145, this.topPos + 81, 32,
+        this.mode3XpEdit = this.createMode3Edit(this.leftPos + 145, this.topPos + 86, 32,
                 String.valueOf(this.mode3Xp), "\\d{0,4}",
                 v -> this.mode3Xp = Math.clamp(parseInt(v, 2), 0, 9999));
 
@@ -5831,7 +5831,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         }
 
         // 职业方块槽位：读 slot2 物品转方块注册 id；非 POI 方块拦截。
-        // 空槽位表示“未修改职业方块”，不清除服务端配置；显式清除请用“清除职业方块”按钮。
+        // 空槽位表示“未修改职业方块”，不清除服务端配置；显式变更请用“变更职业方块”按钮。
         String jobSite = null;
         boolean jobSiteCleared = false;
         if (!this.mode3JobSiteDisabled) {
@@ -5976,7 +5976,10 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     private String localizeTradeLabel(String label) {
         if (label == null || label.isEmpty()) return label;
         try {
-            return label.replaceAll("(\\d+)[xX] ([a-z0-9_]+(?::[a-z0-9_]+)?)", match -> {
+            java.util.regex.Matcher matcher = java.util.regex.Pattern
+                    .compile("(\\d+)[xX] ([a-z0-9_]+(?::[a-z0-9_]+)?)")
+                    .matcher(label);
+            return matcher.replaceAll(match -> {
                 String id = match.group(2);
                 try {
                     var item = BuiltInRegistries.ITEM.getOptional(ResourceLocation.parse(id));
@@ -6090,7 +6093,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         }
     }
 
-    /** 清除职业方块按钮：显式删除当前职业的 job_sites 配置，恢复原版职业方块。 */
+    /** 变更职业方块按钮：显式删除当前职业的 job_sites 配置，恢复原版职业方块，便于重新放置新方块。 */
     private void onMode3ClearJobSite(Button button) {
         if (this.mode3ProfessionIds.isEmpty() || this.mode3ProfessionIdx < 0
                 || this.mode3ProfessionIdx >= this.mode3ProfessionIds.size()) {
@@ -6099,13 +6102,13 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         }
         String profId = this.mode3ProfessionIds.get(this.mode3ProfessionIdx);
         if (isJobSiteDisabledProfession(profId)) {
-            this.showStatus("该职业无职业方块，无需清除");
+            this.showStatus("该职业无职业方块，无需变更");
             return;
         }
         this.setMode3TradeSlot(2, "", 1);
         PacketDistributor.sendToServer(new ModMessages.SaveTradePacket(profId, "{}", null, true),
                 new CustomPacketPayload[0]);
-        this.showStatus("已请求清除职业方块配置");
+        this.showStatus("已请求变更职业方块（原配置已清除，可放置新方块）");
     }
 
     /** 无职业方块的职业：nitwit / unemployed / 流浪商人。 */
