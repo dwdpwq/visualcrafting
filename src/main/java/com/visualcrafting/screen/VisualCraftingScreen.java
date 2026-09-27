@@ -5734,6 +5734,9 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         this.ensureMode3ProfessionDefaults();
         if (this.mode3ProfessionIdx < 0 || this.mode3ProfessionIdx >= this.mode3ProfessionIds.size()) return;
         this.mode3TradeListRequested = true;
+        // 方案B：发出请求即清空旧列表，避免响应到达前旧数据被点选/删除
+        this.mode3TradeIndices = new ArrayList<Integer>();
+        this.mode3TradeLabels = new ArrayList<String>();
         PacketDistributor.sendToServer(new ModMessages.RequestTradeListPacket(
                 this.mode3ProfessionIds.get(this.mode3ProfessionIdx),
                 Math.clamp(this.mode3Level, 1, 5)), new CustomPacketPayload[0]);
@@ -5877,6 +5880,11 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     }
 
     private void onMode3Delete(Button button) {
+        // 方案B：列表请求未返回时拒绝删除，避免用旧索引+新职业/等级发送导致"未找到交易"
+        if (this.mode3TradeListRequested) {
+            this.showStatus("交易列表刷新中，请稍候");
+            return;
+        }
         if (this.mode3ProfessionIds.isEmpty() || this.mode3TradeIndices.isEmpty()
                 || this.mode3TradeIdx < 0 || this.mode3TradeIdx >= this.mode3TradeIndices.size()) {
             this.showStatus("没有可删除的交易");
@@ -5924,6 +5932,8 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
 
     private void updateMode3TradeList(String profId, int level, List<String> labels,
                                          List<Integer> indices, List<String> tradeJsons) {
+        // 方案B：响应已到达，解除删除保护（即使因职业/等级不匹配丢弃也先解除，避免卡死）
+        this.mode3TradeListRequested = false;
         if (this.mode3ProfessionIds.isEmpty()
                 || this.mode3ProfessionIdx < 0
                 || this.mode3ProfessionIdx >= this.mode3ProfessionIds.size()) {

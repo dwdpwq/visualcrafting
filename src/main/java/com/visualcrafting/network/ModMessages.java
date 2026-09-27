@@ -1363,6 +1363,20 @@ public class ModMessages {
                     runtimeListings = VisualCraftingTradeHandler.getRuntimeVillagerTrades(profId, level);
                 }
                 for (int runtimeIndex = 0; runtimeIndex < runtimeListings.size(); runtimeIndex++) {
+                    // 方案A：仅列出已保存过 override 的运行时交易（可删除/编辑），
+                    // 未覆盖的纯预览条目不显示，避免删除时触发"未找到交易"。
+                    File overrideFile;
+                    if (wandering) {
+                        String pool = (level == 2 ? "rare" : "generic");
+                        overrideFile = new File(new File(new File(worldDir, "visualcrafting"),
+                                "trade_overrides/wandering"), pool + "-" + runtimeIndex + ".json");
+                    } else {
+                        overrideFile = new File(new File(new File(new File(worldDir, "visualcrafting"),
+                                "trade_overrides/villager"), profileDirectoryId(profId)),
+                                level + "-" + runtimeIndex + ".json");
+                    }
+                    if (!overrideFile.isFile()) continue;
+
                     MerchantOffer offer = createPreviewOffer(serverPlayer, profId, level, runtimeListings.get(runtimeIndex));
                     if (offer == null) continue;
 
