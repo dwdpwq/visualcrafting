@@ -302,8 +302,8 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     boolean mode3DataRequested = false;
     boolean mode3TradeListRequested = false;
     // Mode3 职业方块槽位：复用隐藏槽 slot 2，位于画布中间留空区（画布 260x215）
-    static final int MODE3_JOB_SITE_X = 100;
-    static final int MODE3_JOB_SITE_Y = 115;
+    static final int MODE3_JOB_SITE_X = 62;
+    static final int MODE3_JOB_SITE_Y = 30;
     boolean mode3JobSiteDisabled = false;
     // Mode3 NBT 精准匹配复选框状态（槽位 0=成本1、1=成本2、81=结果1、80=结果2）
     boolean mode3NbtMatch0 = false;
@@ -2448,13 +2448,13 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     private void layoutMode3Slots() {
         this.hideCraftingSlotsAndOutput();
         // 交易槽a（成本1）→ slot0
-        this.setSlotPosition(0, 32, 85);
+        this.setSlotPosition(0, 32, 90);
         // 交易槽b（成本2，清单 slotIndex=83）→ slot1
-        this.setSlotPosition(1, 56, 85);
+        this.setSlotPosition(1, 56, 90);
         // 结果槽a（结果1，清单 slotIndex=84）→ slot81（原输出槽）
-        this.setSlotPosition(81, 96, 85);
+        this.setSlotPosition(81, 96, 90);
         // 结果槽b（结果2，清单 slotIndex=85）→ slot80
-        this.setSlotPosition(80, 121, 85);
+        this.setSlotPosition(80, 121, 90);
         // 职业方块槽（复用隐藏槽 slot 2）：画布中间留空区；无职业方块职业（nitwit/失业/流浪商人）置灰
         if (this.mode3JobSiteDisabled) {
             this.hideSlot(2);
@@ -3550,14 +3550,14 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         // 数量 / 参数只保留必要的短标题，避免长段提示文字占据交易编辑区。
         int x = this.leftPos;
         int y = this.topPos;
-        guiGraphics.drawString(this.font, "→", x + 78, y + 92, 0x606060, false);
+        guiGraphics.drawString(this.font, "→", x + 78, y + 97, 0x606060, false);
 
         // NBT 精准匹配复选框：4 个槽位各自正下方中间（槽位 y=80，高 18，复选框 y=98）
         this.drawMode3NbtCheckboxes(guiGraphics, mouseX, mouseY);
     }
 
     private void drawMode3NbtCheckboxes(GuiGraphics guiGraphics, int mouseX, int mouseY) {
-        int cby = this.topPos + 103;
+        int cby = this.topPos + 108;
         this.drawMode3NbtBox(guiGraphics, this.leftPos + 37, cby, this.mode3NbtMatch0, mouseX, mouseY, "成本1");
         this.drawMode3NbtBox(guiGraphics, this.leftPos + 61, cby, this.mode3NbtMatch1, mouseX, mouseY, "成本2");
         this.drawMode3NbtBox(guiGraphics, this.leftPos + 101, cby, this.mode3NbtMatch81, mouseX, mouseY, "结果1");
@@ -3575,7 +3575,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     }
 
     private boolean handleMode3NbtClick(double mouseX, double mouseY) {
-        int cby = this.topPos + 103;
+        int cby = this.topPos + 108;
         if (this.mode3NbtBoxHit(mouseX, mouseY, this.leftPos + 37, cby)) return this.toggleMode3Nbt(0);
         if (this.mode3NbtBoxHit(mouseX, mouseY, this.leftPos + 61, cby)) return this.toggleMode3Nbt(1);
         if (this.mode3NbtBoxHit(mouseX, mouseY, this.leftPos + 101, cby)) return this.toggleMode3Nbt(81);
@@ -5713,7 +5713,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         this.funcButtons.add(this.addRenderableWidget(this.mode3BtnConfig));
         this.funcButtons.add(this.addRenderableWidget(this.mode3BtnClearJobSite));
 
-        this.mode3XpEdit = this.createMode3Edit(this.leftPos + 145, this.topPos + 86, 32,
+        this.mode3XpEdit = this.createMode3Edit(this.leftPos + 145, this.topPos + 91, 32,
                 String.valueOf(this.mode3Xp), "\\d{0,4}",
                 v -> this.mode3Xp = Math.clamp(parseInt(v, 2), 0, 9999));
 
