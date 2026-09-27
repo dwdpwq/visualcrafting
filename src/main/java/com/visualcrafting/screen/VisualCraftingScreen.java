@@ -2448,13 +2448,13 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     private void layoutMode3Slots() {
         this.hideCraftingSlotsAndOutput();
         // 交易槽a（成本1）→ slot0
-        this.setSlotPosition(0, 32, 80);
+        this.setSlotPosition(0, 32, 85);
         // 交易槽b（成本2，清单 slotIndex=83）→ slot1
-        this.setSlotPosition(1, 56, 80);
+        this.setSlotPosition(1, 56, 85);
         // 结果槽a（结果1，清单 slotIndex=84）→ slot81（原输出槽）
-        this.setSlotPosition(81, 96, 80);
+        this.setSlotPosition(81, 96, 85);
         // 结果槽b（结果2，清单 slotIndex=85）→ slot80
-        this.setSlotPosition(80, 121, 80);
+        this.setSlotPosition(80, 121, 85);
         // 职业方块槽（复用隐藏槽 slot 2）：画布中间留空区；无职业方块职业（nitwit/失业/流浪商人）置灰
         if (this.mode3JobSiteDisabled) {
             this.hideSlot(2);
@@ -3557,7 +3557,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     }
 
     private void drawMode3NbtCheckboxes(GuiGraphics guiGraphics, int mouseX, int mouseY) {
-        int cby = this.topPos + 98;
+        int cby = this.topPos + 103;
         this.drawMode3NbtBox(guiGraphics, this.leftPos + 37, cby, this.mode3NbtMatch0, mouseX, mouseY, "成本1");
         this.drawMode3NbtBox(guiGraphics, this.leftPos + 61, cby, this.mode3NbtMatch1, mouseX, mouseY, "成本2");
         this.drawMode3NbtBox(guiGraphics, this.leftPos + 101, cby, this.mode3NbtMatch81, mouseX, mouseY, "结果1");
@@ -3575,7 +3575,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     }
 
     private boolean handleMode3NbtClick(double mouseX, double mouseY) {
-        int cby = this.topPos + 98;
+        int cby = this.topPos + 103;
         if (this.mode3NbtBoxHit(mouseX, mouseY, this.leftPos + 37, cby)) return this.toggleMode3Nbt(0);
         if (this.mode3NbtBoxHit(mouseX, mouseY, this.leftPos + 61, cby)) return this.toggleMode3Nbt(1);
         if (this.mode3NbtBoxHit(mouseX, mouseY, this.leftPos + 101, cby)) return this.toggleMode3Nbt(81);
