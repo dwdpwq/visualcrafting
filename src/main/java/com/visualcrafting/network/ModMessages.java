@@ -251,6 +251,27 @@ public class ModMessages {
         return profId == null ? null : profId.replace(":", "__");
     }
 
+    /** job_sites 文件名使用去命名空间规则（与 VisualCraftingJobSiteHandler.normalize 一致），
+     *  例如 minecraft:librarian -> librarian；与 trades 目录的 __ 替换规则不同。 */
+    private static String jobSiteDirectoryId(String profId) {
+        int colon = profId == null ? -1 : profId.indexOf(':');
+        return colon >= 0 ? profId.substring(colon + 1) : profId;
+    }
+
+    /** 读取 world/visualcrafting/job_sites/<prof>.json 中的 block 字段，无配置返回 null。 */
+    private static String loadJobSiteBlock(File worldDir, String profId) {
+        try {
+            File file = new File(new File(new File(worldDir, "visualcrafting"), "job_sites"),
+                    jobSiteDirectoryId(profId) + ".json");
+            if (!file.isFile()) return null;
+            JsonObject json = JsonParser.parseString(
+                    Files.readString(file.toPath(), StandardCharsets.UTF_8)).getAsJsonObject();
+            return json.has("block") ? json.get("block").getAsString().trim() : null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     private static File getTradeProfessionDirectory(File worldDir, String profId, boolean create) {
         File tradesRoot = new File(new File(worldDir, "visualcrafting"), "trades");
         File canonicalDir = new File(tradesRoot, profileDirectoryId(profId));
@@ -1138,6 +1159,21 @@ public class ModMessages {
             try {
                 File worldDir = serverPlayer.server.getWorldPath(LevelResource.ROOT).toFile();
                 JsonObject tradeJson = JsonParser.parseString(packet.tradeJson).getAsJsonObject();
+
+                // 职业方块槽位：非空写 job_sites/<prof>.json（{"block":"minecraft:lectern"}），
+                // 空则删除该文件（清除自定义职业方块配置，恢复原版职业方块）。
+                // 文件名使用去命名空间规则，与 VisualCraftingJobSiteHandler.normalize 一致。
+                File jobSiteDir = new File(new File(worldDir, "visualcrafting"), "job_sites");
+                File jobSiteFile = new File(jobSiteDir, jobSiteDirectoryId(profId) + ".json");
+                if (packet.jobSite != null && !packet.jobSite.isEmpty()) {
+                    jobSiteDir.mkdirs();
+                    JsonObject jobJson = new JsonObject();
+                    jobJson.addProperty("block", packet.jobSite);
+                    Files.writeString(jobSiteFile.toPath(), GSON.toJson(jobJson), StandardCharsets.UTF_8);
+                } else if (jobSiteFile.isFile()) {
+                    jobSiteFile.delete();
+                }
+
                 boolean override = tradeJson.has("override") && tradeJson.get("override").getAsBoolean();
 
                 if (override) {
@@ -1348,9 +1384,14 @@ public class ModMessages {
             List<String> labels = new ArrayList<>();
             List<Integer> indices = new ArrayList<>();
             List<String> tradeJsons = new ArrayList<>();
+            File worldDir = null;
+            String jobSite = null;
 
             try {
-                File worldDir = serverPlayer.server.getWorldPath(LevelResource.ROOT).toFile();
+                File worldDirTmp = serverPlayer.server.getWorldPath(LevelResource.ROOT).toFile();
+                worldDir = worldDirTmp;
+                // 职业方块槽位：读取 job_sites/<prof>.json 的 block 配置随列表回传客户端回填
+                jobSite = loadJobSiteBlock(worldDir, profId);
 
                 // ① 先列出当前运行时的原版/其他 Mod 交易。
                 // 负数索引表示运行时交易：-(原始 index + 1)，用于后续写入 trade_overrides。
@@ -1436,7 +1477,7 @@ public class ModMessages {
             }
 
             PacketDistributor.sendToPlayer(serverPlayer,
-                    new SyncTradeListPacket(profId, level, labels, indices, tradeJsons));
+                    new SyncTradeListPacket(profId, level, labels, indices, tradeJsons, jobSite));
         });
     }
 
@@ -1515,10 +1556,10 @@ public class ModMessages {
                 try {
                     java.lang.reflect.Method method = vcScreen.getClass()
                             .getDeclaredMethod("updateMode3TradeList",
-                                    String.class, int.class, List.class, List.class, List.class);
+                                    String.class, int.class, List.class, List.class, List.class, String.class);
                     method.setAccessible(true);
                     method.invoke(vcScreen, packet.profId, packet.level,
-                            packet.labels, packet.indices, packet.tradeJsons);
+                            packet.labels, packet.indices, packet.tradeJsons, packet.jobSite);
                 } catch (Exception e) {
                     LOGGER.error("[VisualCrafting] Client trade list sync failed: "
                             + e.getClass().getSimpleName() + ": " + e.getMessage());
@@ -2029,7 +2070,7 @@ public class ModMessages {
     }
 
     public record SyncTradeListPacket(String profId, int level, List<String> labels,
-                                           List<Integer> indices, List<String> tradeJsons)
+                                           List<Integer> indices, List<String> tradeJsons, String jobSite)
             implements CustomPacketPayload {
         public static final Type<SyncTradeListPacket> TYPE = new Type<>(SYNC_TRADE_LIST_ID);
         public static final StreamCodec<RegistryFriendlyByteBuf, SyncTradeListPacket> STREAM_CODEC =
@@ -2050,6 +2091,9 @@ public class ModMessages {
 
             buf.writeVarInt(pkt.tradeJsons.size());
             for (String json : pkt.tradeJsons) buf.writeUtf(json);
+
+            buf.writeBoolean(pkt.jobSite != null);
+            if (pkt.jobSite != null) buf.writeUtf(pkt.jobSite);
         }
 
         private static SyncTradeListPacket decode(RegistryFriendlyByteBuf buf) {
@@ -2068,7 +2112,8 @@ public class ModMessages {
             List<String> tradeJsons = new ArrayList<>();
             for (int i = 0; i < jsonCount; i++) tradeJsons.add(buf.readUtf());
 
-            return new SyncTradeListPacket(profId, level, labels, indices, tradeJsons);
+            String jobSite = buf.readBoolean() ? buf.readUtf() : null;
+            return new SyncTradeListPacket(profId, level, labels, indices, tradeJsons, jobSite);
         }
     }
 
@@ -2099,7 +2144,7 @@ public class ModMessages {
         public Type<ClearTradeLevelResponsePacket> type() { return TYPE; }
     }
 
-    public record SaveTradePacket(String profId, String tradeJson) implements CustomPacketPayload {
+    public record SaveTradePacket(String profId, String tradeJson, String jobSite) implements CustomPacketPayload {
         public static final Type<SaveTradePacket> TYPE = new Type<>(SAVE_TRADE_ID);
         public static final StreamCodec<RegistryFriendlyByteBuf, SaveTradePacket> STREAM_CODEC =
                 StreamCodec.of(SaveTradePacket::encode, SaveTradePacket::decode);
@@ -2110,10 +2155,13 @@ public class ModMessages {
         private static void encode(RegistryFriendlyByteBuf buf, SaveTradePacket pkt) {
             buf.writeUtf(pkt.profId);
             buf.writeUtf(pkt.tradeJson);
+            buf.writeBoolean(pkt.jobSite != null);
+            if (pkt.jobSite != null) buf.writeUtf(pkt.jobSite);
         }
 
         private static SaveTradePacket decode(RegistryFriendlyByteBuf buf) {
-            return new SaveTradePacket(buf.readUtf(), buf.readUtf());
+            String jobSite = buf.readBoolean() ? buf.readUtf() : null;
+            return new SaveTradePacket(buf.readUtf(), buf.readUtf(), jobSite);
         }
     }
 

@@ -84,6 +84,7 @@ import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.entity.EquipmentSlotGroup;
 import net.minecraft.world.entity.ai.attributes.Attribute;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
+import net.minecraft.world.entity.ai.village.poi.PoiTypes;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.food.FoodProperties;
 import net.minecraft.world.inventory.AbstractContainerMenu;
@@ -299,6 +300,10 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     Button mode3BtnConfig;
     boolean mode3DataRequested = false;
     boolean mode3TradeListRequested = false;
+    // Mode3 职业方块槽位：复用隐藏槽 slot 2，位于画布中间留空区（画布 260x215）
+    static final int MODE3_JOB_SITE_X = 100;
+    static final int MODE3_JOB_SITE_Y = 115;
+    boolean mode3JobSiteDisabled = false;
     // Mode3 NBT 精准匹配复选框状态（槽位 0=成本1、1=成本2、81=结果1、80=结果2）
     boolean mode3NbtMatch0 = false;
     boolean mode3NbtMatch1 = false;
@@ -2449,6 +2454,12 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         this.setSlotPosition(81, 96, 80);
         // 结果槽b（结果2，清单 slotIndex=85）→ slot80
         this.setSlotPosition(80, 121, 80);
+        // 职业方块槽（复用隐藏槽 slot 2）：画布中间留空区；无职业方块职业（nitwit/失业/流浪商人）置灰
+        if (this.mode3JobSiteDisabled) {
+            this.hideSlot(2);
+        } else {
+            this.setSlotPosition(2, MODE3_JOB_SITE_X, MODE3_JOB_SITE_Y);
+        }
     }
 
     private void layoutMode5Slots() {
@@ -3521,6 +3532,17 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         this.renderSlotOutline(guiGraphics, 1);
         this.renderSlotOutline(guiGraphics, 80);
         this.renderSlotOutline(guiGraphics, 81);
+        // 职业方块槽（slot2）：画布中间留空区；无职业方块职业显示置灰占位
+        if (this.mode3JobSiteDisabled) {
+            guiGraphics.renderOutline(this.leftPos + MODE3_JOB_SITE_X + this.invLineOffsetX,
+                    this.topPos + MODE3_JOB_SITE_Y + this.invLineOffsetY, 18, 18, 0xFF606060);
+            guiGraphics.drawString(this.font, "无职业方块", this.leftPos + MODE3_JOB_SITE_X + 22,
+                    this.topPos + MODE3_JOB_SITE_Y + 5, 0x606060, false);
+        } else {
+            this.renderSlotOutline(guiGraphics, 2);
+        }
+        guiGraphics.drawString(this.font, "职业方块", this.leftPos + MODE3_JOB_SITE_X,
+                this.topPos + MODE3_JOB_SITE_Y + 22, 4210752, false);
 
         // 数量 / 参数只保留必要的短标题，避免长段提示文字占据交易编辑区。
         int x = this.leftPos;
@@ -5737,6 +5759,8 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         // 方案B：发出请求即清空旧列表，避免响应到达前旧数据被点选/删除
         this.mode3TradeIndices = new ArrayList<Integer>();
         this.mode3TradeLabels = new ArrayList<String>();
+        // 职业方块槽位：随职业切换即时刷新禁用状态（配置值待列表响应回填）
+        this.updateMode3JobSiteState(this.mode3ProfessionIds.get(this.mode3ProfessionIdx), null);
         PacketDistributor.sendToServer(new ModMessages.RequestTradeListPacket(
                 this.mode3ProfessionIds.get(this.mode3ProfessionIdx),
                 Math.clamp(this.mode3Level, 1, 5)), new CustomPacketPayload[0]);
@@ -5798,8 +5822,21 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             json.addProperty("editIndex", this.mode3TradeIndices.get(this.mode3TradeIdx));
         }
 
+        // 职业方块槽位：读 slot2 物品转方块注册 id；非 POI 方块拦截；空槽位 jobSite=null（服务端清除配置）
+        String jobSite = null;
+        if (!this.mode3JobSiteDisabled) {
+            String jobItem = this.getItemIdForTradeSlot(2);
+            if (!jobItem.isEmpty()) {
+                if (!this.isPoiJobSiteBlock(jobItem)) {
+                    this.showStatus("该物品不是职业方块（无 POI），请放入讲台/工作台等职业方块");
+                    return;
+                }
+                jobSite = jobItem;
+            }
+        }
+
         PacketDistributor.sendToServer(new ModMessages.SaveTradePacket(
-                this.mode3ProfessionIds.get(this.mode3ProfessionIdx), json.toString()), new CustomPacketPayload[0]);
+                this.mode3ProfessionIds.get(this.mode3ProfessionIdx), json.toString(), jobSite), new CustomPacketPayload[0]);
     }
 
     private String getItemIdForTradeSlot(int slotIndex) {
@@ -5931,7 +5968,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     }
 
     private void updateMode3TradeList(String profId, int level, List<String> labels,
-                                         List<Integer> indices, List<String> tradeJsons) {
+                                         List<Integer> indices, List<String> tradeJsons, String jobSite) {
         // 方案B：响应已到达，解除删除保护（即使因职业/等级不匹配丢弃也先解除，避免卡死）
         this.mode3TradeListRequested = false;
         if (this.mode3ProfessionIds.isEmpty()
@@ -5963,6 +6000,44 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         } else {
             // 无可编辑交易时重置 NBT 复选框状态，避免残留到下一次选择
             this.loadMode3TradeFromJson(null);
+        }
+        // 职业方块槽位回填：无职业方块职业置灰；可配置职业回填 job_sites/<prof>.json 中的方块
+        this.updateMode3JobSiteState(profId, jobSite);
+    }
+
+    /** 职业方块槽位状态：无职业方块职业置灰不可用；可用职业按 jobSite 回填方块物品。 */
+    private void updateMode3JobSiteState(String profId, String jobSite) {
+        boolean disabled = isJobSiteDisabledProfession(profId);
+        this.mode3JobSiteDisabled = disabled;
+        if (disabled) {
+            if (2 < this.menu.slots.size()) {
+                this.menu.slots.get(2).set(ItemStack.EMPTY);
+            }
+            this.hideSlot(2);
+        } else {
+            this.setSlotPosition(2, MODE3_JOB_SITE_X, MODE3_JOB_SITE_Y);
+            this.setMode3TradeSlot(2, jobSite, 1);
+        }
+    }
+
+    /** 无职业方块的职业：nitwit / unemployed / 流浪商人。 */
+    private boolean isJobSiteDisabledProfession(String profId) {
+        return "minecraft:nitwit".equals(profId) || "minecraft:unemployed".equals(profId)
+                || "minecraft:wandering_trader".equals(profId)
+                || "__wandering_generic__".equals(profId) || "__wandering_rare__".equals(profId);
+    }
+
+    /** 校验物品对应的方块是否注册为 POI（职业方块）。 */
+    private boolean isPoiJobSiteBlock(String itemId) {
+        try {
+            var blockOptional = BuiltInRegistries.BLOCK.getOptional(ResourceLocation.parse(itemId));
+            if (blockOptional.isEmpty()) return false;
+            for (BlockState state : blockOptional.get().getStateDefinition().getPossibleStates()) {
+                if (PoiTypes.forState(state).isPresent()) return true;
+            }
+            return false;
+        } catch (Exception e) {
+            return false;
         }
     }
 
