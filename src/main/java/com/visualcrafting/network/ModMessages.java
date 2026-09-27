@@ -1154,6 +1154,7 @@ public class ModMessages {
                     java.lang.reflect.Method method = vcScreen.getClass()
                             .getDeclaredMethod("updateMode4Data",
                                     List.class, List.class, List.class, List.class, List.class, List.class);
+                    method.setAccessible(true);
                     method.invoke(vcScreen,
                             packet.profNames, packet.profIds, packet.mgmtProfNames, packet.mgmtProfIds,
                             packet.mgmtTradeLabels, packet.mgmtTradeDisabled);
@@ -1299,6 +1300,7 @@ public class ModMessages {
                 try {
                     java.lang.reflect.Method method = vcScreen.getClass()
                             .getDeclaredMethod("onSaveTradeResponse");
+                    method.setAccessible(true);
                     method.invoke(vcScreen);
                 } catch (Exception e) {
                     LOGGER.error("[VisualCrafting] Client reflection handler failed: " + e.getClass().getSimpleName() + ": " + e.getMessage());
@@ -1390,6 +1392,7 @@ public class ModMessages {
                 try {
                     java.lang.reflect.Method method = vcScreen.getClass()
                             .getDeclaredMethod("onDeleteTradeResponse");
+                    method.setAccessible(true);
                     method.invoke(vcScreen);
                 } catch (Exception e) {
                     LOGGER.error("[VisualCrafting] Client reflection handler failed: " + e.getClass().getSimpleName() + ": " + e.getMessage());
