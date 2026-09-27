@@ -272,6 +272,24 @@ public class ModMessages {
         }
     }
 
+    /** 遍历 job_sites 目录下其他职业 json，返回占用相同 block 的职业目录名；无重复返回 null。 */
+    private static String findDuplicateJobSiteBlock(File jobSiteDir, String profId, String block) {
+        File[] files = jobSiteDir == null ? null : jobSiteDir.listFiles((d, name) -> name.endsWith(".json"));
+        if (files == null) return null;
+        String self = jobSiteDirectoryId(profId) + ".json";
+        for (File f : files) {
+            if (self.equalsIgnoreCase(f.getName())) continue;
+            try {
+                JsonObject json = JsonParser.parseString(
+                        Files.readString(f.toPath(), StandardCharsets.UTF_8)).getAsJsonObject();
+                String b = json.has("block") ? json.get("block").getAsString().trim() : null;
+                if (block.equals(b)) return f.getName().replace(".json", "");
+            } catch (Exception ignored) {
+            }
+        }
+        return null;
+    }
+
     private static File getTradeProfessionDirectory(File worldDir, String profId, boolean create) {
         File tradesRoot = new File(new File(worldDir, "visualcrafting"), "trades");
         File canonicalDir = new File(tradesRoot, profileDirectoryId(profId));
@@ -1166,10 +1184,18 @@ public class ModMessages {
                 File jobSiteDir = new File(new File(worldDir, "visualcrafting"), "job_sites");
                 File jobSiteFile = new File(jobSiteDir, jobSiteDirectoryId(profId) + ".json");
                 if (packet.jobSite != null && !packet.jobSite.isEmpty()) {
-                    jobSiteDir.mkdirs();
-                    JsonObject jobJson = new JsonObject();
-                    jobJson.addProperty("block", packet.jobSite);
-                    Files.writeString(jobSiteFile.toPath(), GSON.toJson(jobJson), StandardCharsets.UTF_8);
+                    // 重复职业方块校验：同一方块不能被多个职业同时占用（当前职业自身更新允许）。
+                    String dupProf = findDuplicateJobSiteBlock(jobSiteDir, profId, packet.jobSite);
+                    if (dupProf != null) {
+                        serverPlayer.displayClientMessage(
+                                Component.literal("该职业方块已被职业 " + dupProf + " 使用，职业方块未更新"),
+                                false);
+                    } else {
+                        jobSiteDir.mkdirs();
+                        JsonObject jobJson = new JsonObject();
+                        jobJson.addProperty("block", packet.jobSite);
+                        Files.writeString(jobSiteFile.toPath(), GSON.toJson(jobJson), StandardCharsets.UTF_8);
+                    }
                 } else if (jobSiteFile.isFile()) {
                     jobSiteFile.delete();
                 }
@@ -2160,8 +2186,10 @@ public class ModMessages {
         }
 
         private static SaveTradePacket decode(RegistryFriendlyByteBuf buf) {
+            String profId = buf.readUtf();
+            String tradeJson = buf.readUtf();
             String jobSite = buf.readBoolean() ? buf.readUtf() : null;
-            return new SaveTradePacket(buf.readUtf(), buf.readUtf(), jobSite);
+            return new SaveTradePacket(profId, tradeJson, jobSite);
         }
     }
 
