@@ -298,6 +298,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     Button mode3BtnSave;
     Button mode3BtnDelete;
     Button mode3BtnConfig;
+    Button mode3BtnClearJobSite;
     boolean mode3DataRequested = false;
     boolean mode3TradeListRequested = false;
     // Mode3 职业方块槽位：复用隐藏槽 slot 2，位于画布中间留空区（画布 260x215）
@@ -5665,6 +5666,8 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         this.mode3ProfessionDropdown.setOnSelect(index -> {
             this.mode3ProfessionIdx = Math.max(0, Math.min(index, Math.max(0, this.mode3ProfessionIds.size() - 1)));
             this.mode3TradeIdx = 0;
+            // 切换职业：先清空职业方块槽位，配置值随新职业列表响应回填，避免残留上一职业方块。
+            this.setMode3TradeSlot(2, "", 1);
             this.requestMode3TradeList();
         });
         this.addRenderableWidget(this.mode3ProfessionDropdown);
@@ -5703,9 +5706,12 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
                 .pos(this.leftPos + 8, this.topPos + 31).size(this.autoButtonWidth(Component.literal("删除交易")), BUTTON_HEIGHT).build();
         this.mode3BtnConfig = Button.builder(Component.translatable("gui.visualcrafting.config"), this::onMode3Config)
                 .pos(this.leftPos + 8, this.topPos + 50).size(this.autoButtonWidth(Component.translatable("gui.visualcrafting.config")), BUTTON_HEIGHT).build();
+        this.mode3BtnClearJobSite = Button.builder(Component.literal("清除职业方块"), this::onMode3ClearJobSite)
+                .pos(this.leftPos + 8, this.topPos + 69).size(this.autoButtonWidth(Component.literal("清除职业方块")), BUTTON_HEIGHT).build();
         this.funcButtons.add(this.addRenderableWidget(this.mode3BtnDelete));
         this.funcButtons.add(this.addRenderableWidget(this.mode3BtnSave));
         this.funcButtons.add(this.addRenderableWidget(this.mode3BtnConfig));
+        this.funcButtons.add(this.addRenderableWidget(this.mode3BtnClearJobSite));
 
         this.mode3XpEdit = this.createMode3Edit(this.leftPos + 145, this.topPos + 81, 32,
                 String.valueOf(this.mode3Xp), "\\d{0,4}",
@@ -5824,8 +5830,10 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             json.addProperty("editIndex", this.mode3TradeIndices.get(this.mode3TradeIdx));
         }
 
-        // 职业方块槽位：读 slot2 物品转方块注册 id；非 POI 方块拦截；空槽位 jobSite=null（服务端清除配置）
+        // 职业方块槽位：读 slot2 物品转方块注册 id；非 POI 方块拦截。
+        // 空槽位表示“未修改职业方块”，不清除服务端配置；显式清除请用“清除职业方块”按钮。
         String jobSite = null;
+        boolean jobSiteCleared = false;
         if (!this.mode3JobSiteDisabled) {
             String jobItem = this.getItemIdForTradeSlot(2);
             if (!jobItem.isEmpty()) {
@@ -5838,7 +5846,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         }
 
         PacketDistributor.sendToServer(new ModMessages.SaveTradePacket(
-                this.mode3ProfessionIds.get(this.mode3ProfessionIdx), json.toString(), jobSite), new CustomPacketPayload[0]);
+                this.mode3ProfessionIds.get(this.mode3ProfessionIdx), json.toString(), jobSite, jobSiteCleared), new CustomPacketPayload[0]);
     }
 
     private String getItemIdForTradeSlot(int slotIndex) {
@@ -5929,18 +5937,72 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             this.showStatus("没有可删除的交易");
             return;
         }
-        this.mode3DeleteIndex = this.mode3TradeIndices.get(this.mode3TradeIdx);
+        // 运行时交易保护：尚无 override 记录（runtimeHasOverride=false）时不可直接删除，
+        // 避免“未找到交易”；可修改后保存生成覆盖记录再删除。
+        int deleteIndex = this.mode3TradeIndices.get(this.mode3TradeIdx);
+        if (deleteIndex < 0 && this.mode3TradeIdx < this.mode3TradeJsons.size()) {
+            try {
+                JsonObject sel = JsonParser.parseString(this.mode3TradeJsons.get(this.mode3TradeIdx)).getAsJsonObject();
+                if (!sel.has("runtimeHasOverride") || !sel.get("runtimeHasOverride").getAsBoolean()) {
+                    this.showStatus("该原版/Mod 交易尚未保存修改，不能直接删除；可修改后保存生成覆盖记录");
+                    return;
+                }
+            } catch (Exception ignored) { }
+        }
+        this.mode3DeleteIndex = deleteIndex;
         PacketDistributor.sendToServer(new ModMessages.RequestDeleteTradePacket(
                 this.mode3ProfessionIds.get(this.mode3ProfessionIdx),
                 this.mode3DeleteIndex,
                 Math.clamp(this.mode3Level, 1, 5)), new CustomPacketPayload[0]);
     }
 
+    /** 职业名本地化：优先原版实体翻译键（entity.minecraft.villager.<path>），缺失或已中文时保留原名。 */
+    private String localizeProfName(String fallback, String profId) {
+        if (profId == null || profId.isEmpty()) return fallback;
+        if ("__wandering_generic__".equals(profId) || "__wandering_rare__".equals(profId)) return fallback;
+        try {
+            int colon = profId.indexOf(':');
+            String path = colon >= 0 ? profId.substring(colon + 1) : profId;
+            String key = "entity.minecraft.villager." + path;
+            String translated = Component.translatable(key).getString();
+            if (translated != null && !translated.isEmpty() && !translated.equals(key)) {
+                return translated;
+            }
+        } catch (Exception ignored) { }
+        return fallback;
+    }
+
+    /** 交易标签本地化：将 “Nx item_id” 中的物品 id 替换为本地化物品名，其余保留。 */
+    private String localizeTradeLabel(String label) {
+        if (label == null || label.isEmpty()) return label;
+        try {
+            return label.replaceAll("(\\d+)[xX] ([a-z0-9_]+(?::[a-z0-9_]+)?)", match -> {
+                String id = match.group(2);
+                try {
+                    var item = BuiltInRegistries.ITEM.getOptional(ResourceLocation.parse(id));
+                    if (item.isPresent()) {
+                        return match.group(1) + "x " + item.get().getName(ItemStack.EMPTY).getString();
+                    }
+                } catch (Exception ignored) { }
+                return match.group(1) + "x " + id;
+            });
+        } catch (Exception e) {
+            return label;
+        }
+    }
+
     private void updateMode4Data(List<String> profNames, List<String> profIds,
                                  List<String> mgmtProfNames, List<String> mgmtProfIds,
                                  List<String> mgmtTradeLabels, List<Boolean> mgmtTradeDisabled) {
         if (profIds != null && !profIds.isEmpty()) {
-            this.mode3ProfessionNames = new ArrayList<String>(profNames);
+            // 职业名本地化：优先原版实体翻译键（entity.minecraft.villager.<path>），
+            // 翻译缺失（其他 mod 职业）或服务端已下发中文名时保留原名。
+            List<String> localized = new ArrayList<>();
+            for (int i = 0; i < profNames.size(); i++) {
+                String pid = i < profIds.size() ? profIds.get(i) : "";
+                localized.add(localizeProfName(profNames.get(i), pid));
+            }
+            this.mode3ProfessionNames = new ArrayList<String>(localized);
             this.mode3ProfessionIds = new ArrayList<String>(profIds);
 
             // 流浪商人不是 VillagerProfession，不会出现在职业注册表中；
@@ -5981,7 +6043,10 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         String currentProf = this.mode3ProfessionIds.get(this.mode3ProfessionIdx);
         if (!Objects.equals(currentProf, profId) || this.mode3Level != level) return;
 
-        this.mode3TradeLabels = new ArrayList<String>(labels);
+        // 交易标签本地化：将物品 id（emerald/book 等）替换为当前语言下的物品名。
+        List<String> localizedLabels = new ArrayList<>();
+        for (String label : labels) localizedLabels.add(localizeTradeLabel(label));
+        this.mode3TradeLabels = localizedLabels;
         this.mode3TradeIndices = new ArrayList<Integer>(indices);
         this.mode3TradeJsons = new ArrayList<String>(tradeJsons == null ? List.of() : tradeJsons);
         this.mode3TradeIdx = Math.clamp(this.mode3TradeIdx, 0, Math.max(0, this.mode3TradeLabels.size() - 1));
@@ -6007,7 +6072,8 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         this.updateMode3JobSiteState(profId, jobSite);
     }
 
-    /** 职业方块槽位状态：无职业方块职业置灰不可用；可用职业按 jobSite 回填方块物品。 */
+    /** 职业方块槽位状态：无职业方块职业置灰不可用；jobSite 非空时回填方块物品；
+     *  jobSite 为 null 时仅刷新禁用状态/显隐，不清空槽位内容（保存后/列表刷新不误清用户放入的方块）。 */
     private void updateMode3JobSiteState(String profId, String jobSite) {
         boolean disabled = isJobSiteDisabledProfession(profId);
         this.mode3JobSiteDisabled = disabled;
@@ -6018,8 +6084,28 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             this.hideSlot(2);
         } else {
             this.setSlotPosition(2, MODE3_JOB_SITE_X, MODE3_JOB_SITE_Y);
-            this.setMode3TradeSlot(2, jobSite, 1);
+            if (jobSite != null) {
+                this.setMode3TradeSlot(2, jobSite, 1);
+            }
         }
+    }
+
+    /** 清除职业方块按钮：显式删除当前职业的 job_sites 配置，恢复原版职业方块。 */
+    private void onMode3ClearJobSite(Button button) {
+        if (this.mode3ProfessionIds.isEmpty() || this.mode3ProfessionIdx < 0
+                || this.mode3ProfessionIdx >= this.mode3ProfessionIds.size()) {
+            this.showStatus("没有可用的村民职业");
+            return;
+        }
+        String profId = this.mode3ProfessionIds.get(this.mode3ProfessionIdx);
+        if (isJobSiteDisabledProfession(profId)) {
+            this.showStatus("该职业无职业方块，无需清除");
+            return;
+        }
+        this.setMode3TradeSlot(2, "", 1);
+        PacketDistributor.sendToServer(new ModMessages.SaveTradePacket(profId, "{}", null, true),
+                new CustomPacketPayload[0]);
+        this.showStatus("已请求清除职业方块配置");
     }
 
     /** 无职业方块的职业：nitwit / unemployed / 流浪商人。 */

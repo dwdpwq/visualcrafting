@@ -1180,10 +1180,19 @@ public class ModMessages {
                 JsonObject tradeJson = JsonParser.parseString(packet.tradeJson).getAsJsonObject();
 
                 // 职业方块槽位：非空写 job_sites/<prof>.json（{"block":"minecraft:lectern"}），
-                // 空则删除该文件（清除自定义职业方块配置，恢复原版职业方块）。
+                // 显式清除（jobSiteCleared）删除该文件；槽位为空且未清除则不修改配置，
+                // 避免普通交易保存时误删已配置的职业方块。
                 // 文件名使用去命名空间规则，与 VisualCraftingJobSiteHandler.normalize 一致。
                 File jobSiteDir = new File(new File(worldDir, "visualcrafting"), "job_sites");
                 File jobSiteFile = new File(jobSiteDir, jobSiteDirectoryId(profId) + ".json");
+                if (packet.jobSiteCleared) {
+                    // 显式清除：删除职业方块配置，恢复原版职业方块。
+                    if (jobSiteFile.isFile() && jobSiteFile.delete()) {
+                        LOGGER.info("[VisualCrafting] job-site cleared for " + profId);
+                    }
+                    PacketDistributor.sendToPlayer(serverPlayer, new SaveTradeResponsePacket());
+                    return;
+                }
                 if (packet.jobSite != null && !packet.jobSite.isEmpty()) {
                     // 重复职业方块校验：同一方块不能被多个职业同时占用（当前职业自身更新允许）。
                     String dupProf = findDuplicateJobSiteBlock(jobSiteDir, profId, packet.jobSite);
@@ -1196,9 +1205,11 @@ public class ModMessages {
                         JsonObject jobJson = new JsonObject();
                         jobJson.addProperty("block", packet.jobSite);
                         Files.writeString(jobSiteFile.toPath(), GSON.toJson(jobJson), StandardCharsets.UTF_8);
+                        LOGGER.info("[VisualCrafting] job-site set " + packet.jobSite + " for " + profId);
                     }
-                } else if (jobSiteFile.isFile()) {
-                    jobSiteFile.delete();
+                } else {
+                    // 槽位为空且未显式清除：保留服务端现有配置。
+                    LOGGER.info("[VisualCrafting] job-site untouched for " + profId);
                 }
 
                 boolean override = tradeJson.has("override") && tradeJson.get("override").getAsBoolean();
@@ -1433,8 +1444,8 @@ public class ModMessages {
                     runtimeListings = VisualCraftingTradeHandler.getRuntimeVillagerTrades(profId, level);
                 }
                 for (int runtimeIndex = 0; runtimeIndex < runtimeListings.size(); runtimeIndex++) {
-                    // 方案A：仅列出已保存过 override 的运行时交易（可删除/编辑），
-                    // 未覆盖的纯预览条目不显示，避免删除时触发"未找到交易"。
+                    // 方案B：运行时交易全部列出（供预览/修改），是否已有 override 用 runtimeHasOverride 标记；
+                    // 未覆盖条目删除时由客户端提示保护，避免误删/触发“未找到交易”。
                     File overrideFile;
                     if (wandering) {
                         String pool = (level == 2 ? "rare" : "generic");
@@ -1445,7 +1456,7 @@ public class ModMessages {
                                 "trade_overrides/villager"), profileDirectoryId(profId)),
                                 level + "-" + runtimeIndex + ".json");
                     }
-                    if (!overrideFile.isFile()) continue;
+                    boolean hasOverride = overrideFile.isFile();
 
                     MerchantOffer offer = createPreviewOffer(serverPlayer, profId, level, runtimeListings.get(runtimeIndex));
                     if (offer == null) continue;
@@ -1453,6 +1464,7 @@ public class ModMessages {
                     JsonObject json = merchantOfferToTradeJson(offer);
                     json.addProperty("runtime", true);
                     json.addProperty("runtimeIndex", runtimeIndex);
+                    json.addProperty("runtimeHasOverride", hasOverride);
                     json.addProperty("level", level);
 
                     labels.add("原版/Mod " + (runtimeIndex + 1) + ". "
@@ -2173,7 +2185,7 @@ public class ModMessages {
         public Type<ClearTradeLevelResponsePacket> type() { return TYPE; }
     }
 
-    public record SaveTradePacket(String profId, String tradeJson, String jobSite) implements CustomPacketPayload {
+    public record SaveTradePacket(String profId, String tradeJson, String jobSite, boolean jobSiteCleared) implements CustomPacketPayload {
         public static final Type<SaveTradePacket> TYPE = new Type<>(SAVE_TRADE_ID);
         public static final StreamCodec<RegistryFriendlyByteBuf, SaveTradePacket> STREAM_CODEC =
                 StreamCodec.of(SaveTradePacket::encode, SaveTradePacket::decode);
@@ -2186,13 +2198,15 @@ public class ModMessages {
             buf.writeUtf(pkt.tradeJson);
             buf.writeBoolean(pkt.jobSite != null);
             if (pkt.jobSite != null) buf.writeUtf(pkt.jobSite);
+            buf.writeBoolean(pkt.jobSiteCleared);
         }
 
         private static SaveTradePacket decode(RegistryFriendlyByteBuf buf) {
             String profId = buf.readUtf();
             String tradeJson = buf.readUtf();
             String jobSite = buf.readBoolean() ? buf.readUtf() : null;
-            return new SaveTradePacket(profId, tradeJson, jobSite);
+            boolean jobSiteCleared = buf.readBoolean();
+            return new SaveTradePacket(profId, tradeJson, jobSite, jobSiteCleared);
         }
     }
 
