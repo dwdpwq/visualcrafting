@@ -3536,13 +3536,15 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         if (this.mode3JobSiteDisabled) {
             guiGraphics.renderOutline(this.leftPos + MODE3_JOB_SITE_X + this.invLineOffsetX,
                     this.topPos + MODE3_JOB_SITE_Y + this.invLineOffsetY, 18, 18, 0xFF606060);
-            guiGraphics.drawString(this.font, "无职业方块", this.leftPos + MODE3_JOB_SITE_X + 22,
-                    this.topPos + MODE3_JOB_SITE_Y + 5, 0x606060, false);
+            guiGraphics.drawString(this.font, "无职业方块", this.leftPos + MODE3_JOB_SITE_X,
+                    this.topPos + MODE3_JOB_SITE_Y + 22, 0x606060, false);
         } else {
             this.renderSlotOutline(guiGraphics, 2);
         }
-        guiGraphics.drawString(this.font, "职业方块", this.leftPos + MODE3_JOB_SITE_X,
-                this.topPos + MODE3_JOB_SITE_Y + 22, 4210752, false);
+        if (!this.mode3JobSiteDisabled) {
+            guiGraphics.drawString(this.font, "职业方块", this.leftPos + MODE3_JOB_SITE_X,
+                    this.topPos + MODE3_JOB_SITE_Y + 22, 4210752, false);
+        }
 
         // 数量 / 参数只保留必要的短标题，避免长段提示文字占据交易编辑区。
         int x = this.leftPos;
