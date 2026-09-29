@@ -273,6 +273,7 @@ public class RecipeRegistrar {
         }
 
         Map<String, Integer> crtNameCounter = new HashMap<>();
+        Map<String, Integer> kubejsNameCounter = new HashMap<>();
         for (Map.Entry<String, List<OwnedRecipe>> groupEntry : groups.entrySet()) {
             String owner = groupEntry.getKey().split("\u0001", 2)[0];
             String mod = groupEntry.getKey().split("\u0001", 2)[1];
@@ -318,10 +319,11 @@ public class RecipeRegistrar {
                         generateShapelessCRT(sb, r, outputId, count, recipeName);
                     }
                 } else {
+                    String recipeName = kubejsRecipeName(kubejsNameCounter, outputId);
                     if (r.shaped) {
-                        generateShaped(sb, r, outputId, count);
+                        generateShaped(sb, r, outputId, count, recipeName);
                     } else {
-                        generateShapeless(sb, r, outputId, count);
+                        generateShapeless(sb, r, outputId, count, recipeName);
                     }
                 }
                 sb.append("\n");
@@ -394,10 +396,11 @@ public class RecipeRegistrar {
                         generateShapelessCRT(extSb, r, outputId, count, recipeName);
                     }
                 } else {
+                    String recipeName = kubejsRecipeName(kubejsNameCounter, outputId);
                     if (r.shaped) {
-                        generateShaped(extSb, r, outputId, count);
+                        generateShaped(extSb, r, outputId, count, recipeName);
                     } else {
-                        generateShapeless(extSb, r, outputId, count);
+                        generateShapeless(extSb, r, outputId, count, recipeName);
                     }
                 }
                 extSb.append("\n");
@@ -423,10 +426,56 @@ public class RecipeRegistrar {
         return side * side == r.ingredients.size() && side > 3;
     }
 
+    /**
+     * 若配方勾选“保留 NBT”且结果物品含组件数据，返回 components 子标签（CompoundTag）；
+     * 否则返回 null（输出普通物品）。
+     * 仅在服务端 regenerateScript 链路调用，registryAccess 取当前服务器。
+     */
+    private static CompoundTag craftResultComponents(VisualCraftingBlockEntity.SavedRecipe recipe) {
+        if (!recipe.saveNbt || recipe.result.isEmpty() || recipe.result.getComponents().isEmpty()) {
+            return null;
+        }
+        try {
+            net.minecraft.server.MinecraftServer server =
+                    net.neoforged.neoforge.server.ServerLifecycleHooks.getCurrentServer();
+            if (server == null) {
+                return null;
+            }
+            CompoundTag tag = (CompoundTag) recipe.result.saveOptional(server.registryAccess());
+            CompoundTag comps = tag.getCompound("components");
+            return comps.isEmpty() ? null : comps;
+        } catch (Exception e) {
+            LOGGER.warn("[VisualCrafting] Failed to serialize result NBT for recipe: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 若配方勾选“保留 NBT”且结果物品含组件数据，返回 components 的标准配方 JSON 字符串
+     * （NBT 存储格式经 JsonOps 转换，可直接内联为 event.custom 的 result.components）。
+     * 否则返回 null。
+     */
+    private static String craftResultJson(VisualCraftingBlockEntity.SavedRecipe recipe) {
+        CompoundTag comps = craftResultComponents(recipe);
+        if (comps == null) {
+            return null;
+        }
+        try {
+            com.google.gson.JsonElement json = new com.mojang.serialization.Dynamic<>(
+                    net.minecraft.nbt.NbtOps.INSTANCE, comps)
+                    .convert(com.mojang.serialization.JsonOps.INSTANCE).getValue();
+            return json.toString();
+        } catch (Exception e) {
+            LOGGER.warn("[VisualCrafting] Failed to convert result NBT to JSON: {}", e.getMessage());
+            return null;
+        }
+    }
+
     /** 生成“配方+产出”指纹：配方一致（shaped 按裁剪后的逐格物品、shapeless 按无序物品集）且产出一致。 */
     private static String fingerprint(VisualCraftingBlockEntity.SavedRecipe r) {
         String outId = BuiltInRegistries.ITEM.getKey(r.result.getItem()).toString();
         StringBuilder sb = new StringBuilder(outId).append('|').append(r.result.getCount()).append('|');
+        sb.append('N').append(r.saveNbt ? '1' : '0').append('|');
         if (r.shaped) {
             sb.append("S|");
             int side = (int) Math.sqrt(r.ingredients.size());
@@ -625,7 +674,7 @@ public class RecipeRegistrar {
     // ---- KubeJS shaped/shapeless generators ----
 
     private static void generateShaped(StringBuilder sb, VisualCraftingBlockEntity.SavedRecipe recipe,
-                                       String outputId, int count) {
+                                       String outputId, int count, String recipeName) {
         int side = (int) Math.sqrt(recipe.ingredients.size());
         if (side * side != recipe.ingredients.size() || side < 3 || side > 9) return;
 
@@ -645,11 +694,9 @@ public class RecipeRegistrar {
         LinkedHashMap<String, String> keyMap = new LinkedHashMap<>();
         char nextChar = 'A';
 
-        sb.append("  event.shaped(\n");
-        sb.append("    Item.of('").append(outputId).append("'");
-        if (count > 1) sb.append(", ").append(count);
-        sb.append("),\n");
-        sb.append("    [\n");
+        sb.append("  event.custom({\n");
+        sb.append("    type: 'minecraft:crafting_shaped',\n");
+        sb.append("    pattern: [\n");
 
         for (int r = minRow; r <= maxRow; r++) {
             StringBuilder rowStr = new StringBuilder();
@@ -679,24 +726,23 @@ public class RecipeRegistrar {
         }
 
         sb.append("    ],\n");
-        sb.append("    {\n");
+        sb.append("    key: {\n");
         int ki = 0;
         for (Map.Entry<String, String> e : keyMap.entrySet()) {
-            sb.append("      ").append(e.getKey()).append(": '").append(e.getValue()).append("'");
+            sb.append("      ").append(e.getKey()).append(": { item: '").append(e.getValue()).append("' }");
             if (++ki < keyMap.size()) sb.append(",");
             sb.append("\n");
         }
-        sb.append("    }\n");
-        sb.append("  );//添加有序合成\"").append(recipe.result.getHoverName().getString()).append("\"配方");
+        sb.append("    },\n");
+        appendResult(sb, recipe, outputId, count);
+        sb.append("  }).id('").append(recipeName).append("');//添加有序合成\"").append(recipe.result.getHoverName().getString()).append("\"配方");
     }
 
     private static void generateShapeless(StringBuilder sb, VisualCraftingBlockEntity.SavedRecipe recipe,
-                                          String outputId, int count) {
-        sb.append("  event.shapeless(\n");
-        sb.append("    Item.of('").append(outputId).append("'");
-        if (count > 1) sb.append(", ").append(count);
-        sb.append("),\n");
-        sb.append("    [\n");
+                                          String outputId, int count, String recipeName) {
+        sb.append("  event.custom({\n");
+        sb.append("    type: 'minecraft:crafting_shapeless',\n");
+        sb.append("    ingredients: [\n");
 
         List<ItemStack> nonEmpty = new ArrayList<>();
         for (ItemStack s : recipe.ingredients) {
@@ -704,12 +750,36 @@ public class RecipeRegistrar {
         }
         for (int i = 0; i < nonEmpty.size(); i++) {
             String itemId = BuiltInRegistries.ITEM.getKey(nonEmpty.get(i).getItem()).toString();
-            sb.append("      '").append(itemId).append("'");
+            sb.append("      { item: '").append(itemId).append("' }");
             if (i < nonEmpty.size() - 1) sb.append(",");
             sb.append("\n");
         }
-        sb.append("    ]\n");
-        sb.append("  );//添加无序合成\"").append(recipe.result.getHoverName().getString()).append("\"配方");
+        sb.append("    ],\n");
+        appendResult(sb, recipe, outputId, count);
+        sb.append("  }).id('").append(recipeName).append("');//添加无序合成\"").append(recipe.result.getHoverName().getString()).append("\"配方");
+    }
+
+    /** KubeJS event.custom 的 result 块：{ id, count, components }；components 直接内联配方 JSON（合法 JS 对象字面量）。 */
+    private static void appendResult(StringBuilder sb, VisualCraftingBlockEntity.SavedRecipe recipe,
+                                     String outputId, int count) {
+        String resultJson = craftResultJson(recipe);
+        sb.append("    result: {\n");
+        sb.append("      id: '").append(outputId).append("'");
+        if (count > 1 || resultJson != null) {
+            sb.append(",\n      count: ").append(count);
+        }
+        if (resultJson != null) {
+            sb.append(",\n      components: ").append(resultJson);
+        }
+        sb.append("\n    },\n");
+    }
+
+    /** KubeJS 配方 ID：path 首次直接用，同输出重复时追加 _1/_2（与 CRT 规则一致），带 visualcrafting: 前缀。 */
+    private static String kubejsRecipeName(Map<String, Integer> counter, String outputId) {
+        String pathName = ResourceLocation.parse(outputId).getPath();
+        int idx = counter.merge(pathName, 1, Integer::sum) - 1;
+        String base = idx == 0 ? pathName : pathName + "_" + idx;
+        return "visualcrafting:" + base;
     }
 
     // ---- CRT shaped/shapeless generators ----
@@ -733,18 +803,21 @@ public class RecipeRegistrar {
         if (!hasAny) return;
 
         boolean extended = side > 3;
+        CompoundTag outNbt = craftResultComponents(recipe);
         if (extended) {
             int tier = side == 5 ? 2 : (side == 7 ? 3 : 4);
             sb.append("<recipetype:extendedcrafting:table>.addShaped(\"");
             sb.append(recipeName).append("\", ");
             sb.append(tier);
             sb.append(", <item:").append(outputId).append(">");
+            if (outNbt != null) sb.append(".withTag(").append(outNbt).append(")");
             if (count > 1) sb.append(" * ").append(count);
             sb.append(", [\n");
         } else {
             sb.append("craftingTable.addShaped(\"");
             sb.append(recipeName).append("\", ");
             sb.append("<item:").append(outputId).append(">");
+            if (outNbt != null) sb.append(".withTag(").append(outNbt).append(")");
             if (count > 1) sb.append(" * ").append(count);
             sb.append(", [\n");
         }
@@ -777,6 +850,7 @@ public class RecipeRegistrar {
 
         int side = (int) Math.sqrt(recipe.ingredients.size());
         boolean extended = side > 3;
+        CompoundTag outNbt = craftResultComponents(recipe);
 
         if (extended) {
             int tier = side == 5 ? 2 : (side == 7 ? 3 : 4);
@@ -784,12 +858,14 @@ public class RecipeRegistrar {
             sb.append(recipeName).append("\", ");
             sb.append(tier);
             sb.append(", <item:").append(outputId).append(">");
+            if (outNbt != null) sb.append(".withTag(").append(outNbt).append(")");
             if (count > 1) sb.append(" * ").append(count);
             sb.append(", [");
         } else {
             sb.append("craftingTable.addShapeless(\"");
             sb.append(recipeName).append("\", ");
             sb.append("<item:").append(outputId).append(">");
+            if (outNbt != null) sb.append(".withTag(").append(outNbt).append(")");
             if (count > 1) sb.append(" * ").append(count);
             sb.append(", [");
         }

@@ -301,12 +301,24 @@ public class VisualCraftingBlockEntity extends BlockEntity {
         public List<ItemStack> ingredients;
         /** 创建时间（epoch millis，服务端添加时写入）；0 表示未知（旧数据/最老，合并时优先保留）。 */
         public long createdAt;
+        /** 是否保留结果 NBT（Mode0 合成结果槽复选框；默认 false，旧数据兼容）。 */
+        public boolean saveNbt;
 
         public SavedRecipe(boolean shaped, ItemStack result, List<ItemStack> ingredients) {
             this.shaped = shaped;
             this.banned = false;
             this.result = result;
             this.ingredients = ingredients;
+            this.saveNbt = false;
+            this.createdAt = System.currentTimeMillis();
+        }
+
+        public SavedRecipe(boolean shaped, ItemStack result, List<ItemStack> ingredients, boolean saveNbt) {
+            this.shaped = shaped;
+            this.banned = false;
+            this.result = result;
+            this.ingredients = ingredients;
+            this.saveNbt = saveNbt;
             this.createdAt = System.currentTimeMillis();
         }
 
@@ -315,6 +327,16 @@ public class VisualCraftingBlockEntity extends BlockEntity {
             this.banned = banned;
             this.result = result;
             this.ingredients = ingredients;
+            this.saveNbt = false;
+            this.createdAt = 0L;
+        }
+
+        public SavedRecipe(boolean shaped, boolean banned, ItemStack result, List<ItemStack> ingredients, boolean saveNbt) {
+            this.shaped = shaped;
+            this.banned = banned;
+            this.result = result;
+            this.ingredients = ingredients;
+            this.saveNbt = saveNbt;
             this.createdAt = 0L;
         }
 
@@ -330,6 +352,7 @@ public class VisualCraftingBlockEntity extends BlockEntity {
             tag.putBoolean("shaped", shaped);
             tag.putBoolean("banned", banned);
             tag.put("result", result.save(provider));
+            tag.putBoolean("saveNbt", saveNbt);
 
             ListTag ingredientsTag = new ListTag();
             for (ItemStack stack : ingredients) {
@@ -357,6 +380,7 @@ public class VisualCraftingBlockEntity extends BlockEntity {
                 ingredients.add(ItemStack.parse(provider, ingredientsTag.getCompound(i)).orElse(ItemStack.EMPTY));
             }
             SavedRecipe r = new SavedRecipe(shaped, banned, result, ingredients);
+            r.saveNbt = tag.getBoolean("saveNbt");
             if (tag.contains("CreatedAt")) {
                 r.createdAt = tag.getLong("CreatedAt");
             }

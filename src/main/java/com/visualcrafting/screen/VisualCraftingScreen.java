@@ -84,7 +84,6 @@ import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.entity.EquipmentSlotGroup;
 import net.minecraft.world.entity.ai.attributes.Attribute;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
-import net.minecraft.world.entity.ai.village.poi.PoiTypes;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.food.FoodProperties;
 import net.minecraft.world.inventory.AbstractContainerMenu;
@@ -280,6 +279,8 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     List<String> mode3TradeJsons = new ArrayList<String>();
     boolean mode3SelectedRuntime = false;
     int mode3SelectedRuntimeIndex = -1;
+    /** "＋ 新建交易"下拉占位索引：Integer.MIN_VALUE 不会与运行时负索引(-(index+1))或自定义正索引冲突。 */
+    private static final int MODE3_NEW_TRADE = Integer.MIN_VALUE;
     int mode3ProfessionIdx = 0;
     int mode3Level = 1;
     int mode3LevelIdx = 0;
@@ -301,6 +302,10 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     Button mode3BtnClearJobSite;
     boolean mode3DataRequested = false;
     boolean mode3TradeListRequested = false;
+    // 保存/删除响应后的列表刷新仅更新下拉，不回填槽位，避免覆盖用户刚放置的新交易物品
+    boolean mode3PreserveSlotsOnReload = false;
+    // 删除响应待校验的被删条目 index 值（正=自定义文件编号，负=运行时索引；-1=无待校验项）
+    int mode3PendingDeletedIndex = -1;
     // Mode3 职业方块槽位：复用隐藏槽 slot 2，位于画布中间留空区（画布 260x215）
     static final int MODE3_JOB_SITE_X = 62;
     static final int MODE3_JOB_SITE_Y = 30;
@@ -737,7 +742,10 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             }
 
             if (hasAnyItem) {
-                PacketDistributor.sendToServer(new ModMessages.AddRecipePacket(this.menu.blockPos, shaped, slot.getItem().copy(), arrayList, this.saveNbtOnCraft), new CustomPacketPayload[0]);
+                ItemStack resultStack = slot.getItem().copy();
+                // 记录结果槽实际堆叠数：clamp 1~64（参照 Mode3 最近改动 onMode3Save 读法）
+                resultStack.setCount(Math.max(1, Math.min(64, resultStack.getCount())));
+                PacketDistributor.sendToServer(new ModMessages.AddRecipePacket(this.menu.blockPos, shaped, resultStack, arrayList, this.saveNbtOnCraft), new CustomPacketPayload[0]);
             }
 
         }
@@ -2563,6 +2571,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             }
 
             this.renderSlotOutline(guiGraphics, 81);
+            this.drawCraftNbtCheckbox(guiGraphics, mouseX, mouseY);
             this.renderCraftList(guiGraphics, mouseX, mouseY);
         } else if (this.mode == 1) {
             this.renderInfusingExtras(guiGraphics);
@@ -2725,6 +2734,17 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         }
 
         if (this.mode == 3 && button == 0 && this.handleMode3NbtClick(mouseX, mouseY)) {
+            return true;
+        }
+
+        // Mode0 合成结果槽“保留 NBT”复选框：左键点击切换（结果槽为空时提示）
+        if (this.mode == 0 && button == 0 && this.handleCraftNbtClick(mouseX, mouseY)) {
+            return true;
+        }
+
+        // Mode3 交易编辑槽位：右键点击槽位=清空该槽（成本1/成本2/结果1/结果2），
+        // 提供直观清空入口，避免只能通过"拿起+画面外丢弃"清空导致旧物品残留。
+        if (this.mode == 3 && button == 1 && this.handleMode3SlotRightClear(mouseX, mouseY)) {
             return true;
         }
 
@@ -3572,6 +3592,38 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
                     Component.literal(checked ? "已启用 NBT 精准匹配" : "点击启用 NBT 精准匹配"),
                     Component.literal(slotLabel + "：交易时按物品 NBT/组件全等匹配")), mouseX, mouseY);
         }
+    }
+
+    // ======================== Mode0 合成结果槽“保留 NBT”复选框 ========================
+    // 位置：结果槽(81)正下方居中（槽底 y+2，x 以槽中心 -4 对齐）；样式/行为参照 Mode3 槽位复选框。
+
+    private void drawCraftNbtCheckbox(GuiGraphics guiGraphics, int mouseX, int mouseY) {
+        int x = this.slotAbsX(81) + 9 - 4;
+        int y = this.slotAbsY(81) + 18 + 2;
+        guiGraphics.drawString(this.font, this.saveNbtOnCraft ? "☑" : "☐", x, y, 4210752, false);
+        if (mouseX >= x && mouseX < x + 8 && mouseY >= y && mouseY < y + 9) {
+            guiGraphics.renderComponentTooltip(this.font, List.of(
+                    Component.literal(this.saveNbtOnCraft ? "已启用保留 NBT" : "点击启用保留 NBT"),
+                    Component.literal("结果：保存/导出配方时保留结果物品的 NBT/组件数据")), mouseX, mouseY);
+        }
+    }
+
+    private boolean handleCraftNbtClick(double mouseX, double mouseY) {
+        int x = this.slotAbsX(81) + 9 - 4;
+        int y = this.slotAbsY(81) + 18 + 2;
+        if (mouseX >= (double)x && mouseX < (double)(x + 8) && mouseY >= (double)y && mouseY < (double)(y + 9)) {
+            return this.toggleCraftNbt();
+        }
+        return false;
+    }
+
+    private boolean toggleCraftNbt() {
+        if (this.menu.slots.get(81).getItem().isEmpty()) {
+            this.showStatus("请先在结果槽放入物品，再启用保留 NBT");
+            return true;
+        }
+        this.saveNbtOnCraft = !this.saveNbtOnCraft;
+        return true;
     }
 
     private boolean handleMode3NbtClick(double mouseX, double mouseY) {
@@ -5666,7 +5718,8 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         this.mode3ProfessionDropdown.setOnSelect(index -> {
             this.mode3ProfessionIdx = Math.max(0, Math.min(index, Math.max(0, this.mode3ProfessionIds.size() - 1)));
             this.mode3TradeIdx = 0;
-            // 切换职业：先清空职业方块槽位，配置值随新职业列表响应回填，避免残留上一职业方块。
+            // 切换职业：重置交易编辑槽位并清空职业方块槽位，配置值随新职业列表响应回填，避免残留上一职业/上一笔交易。
+            this.resetMode3TradeSlots();
             this.setMode3TradeSlot(2, "", 1);
             this.requestMode3TradeList();
         });
@@ -5678,6 +5731,8 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             this.mode3LevelIdx = Math.max(0, Math.min(index, 4));
             this.mode3Level = this.mode3LevelIdx + 1;
             this.mode3TradeIdx = 0;
+            // 切换等级：重置交易编辑槽位，避免新建时残留上一等级编辑/加载的交易物品。
+            this.resetMode3TradeSlots();
             this.requestMode3TradeList();
         });
         this.addRenderableWidget(this.mode3LevelDropdown);
@@ -5689,12 +5744,20 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         this.mode3TradeDropdown.setOnSelect(index -> {
             this.mode3TradeIdx = Math.max(0, Math.min(index, Math.max(0, this.mode3TradeIndices.size() - 1)));
             if (!this.mode3TradeIndices.isEmpty() && this.mode3TradeIdx < this.mode3TradeIndices.size()) {
-                this.mode3DeleteIndex = this.mode3TradeIndices.get(this.mode3TradeIdx);
-                this.mode3SelectedRuntime = this.mode3DeleteIndex < 0;
-                this.mode3SelectedRuntimeIndex = this.mode3SelectedRuntime
-                        ? -this.mode3DeleteIndex - 1 : -1;
-                if (this.mode3TradeIdx < this.mode3TradeJsons.size()) {
-                    this.loadMode3TradeFromJson(this.mode3TradeJsons.get(this.mode3TradeIdx));
+                int selectedIdx = this.mode3TradeIndices.get(this.mode3TradeIdx);
+                if (selectedIdx == MODE3_NEW_TRADE) {
+                    // "＋ 新建交易"占位：不选中任何交易，保存走服务端新增分支（写 trades/<prof>/<n>.json）
+                    this.mode3DeleteIndex = -1;
+                    this.mode3SelectedRuntime = false;
+                    this.mode3SelectedRuntimeIndex = -1;
+                } else {
+                    this.mode3DeleteIndex = selectedIdx;
+                    this.mode3SelectedRuntime = this.mode3DeleteIndex < 0;
+                    this.mode3SelectedRuntimeIndex = this.mode3SelectedRuntime
+                            ? -this.mode3DeleteIndex - 1 : -1;
+                    if (this.mode3TradeIdx < this.mode3TradeJsons.size()) {
+                        this.loadMode3TradeFromJson(this.mode3TradeJsons.get(this.mode3TradeIdx));
+                    }
                 }
             }
         });
@@ -5704,10 +5767,10 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
                 .pos(this.leftPos + 8, this.topPos + 12).size(this.autoButtonWidth(Component.literal("保存交易")), BUTTON_HEIGHT).build();
         this.mode3BtnDelete = Button.builder(Component.literal("删除交易"), this::onMode3Delete)
                 .pos(this.leftPos + 8, this.topPos + 31).size(this.autoButtonWidth(Component.literal("删除交易")), BUTTON_HEIGHT).build();
-        this.mode3BtnConfig = Button.builder(Component.translatable("gui.visualcrafting.config"), this::onMode3Config)
-                .pos(this.leftPos + 8, this.topPos + 50).size(this.autoButtonWidth(Component.translatable("gui.visualcrafting.config")), BUTTON_HEIGHT).build();
-        this.mode3BtnClearJobSite = Button.builder(Component.literal("变更职业方块"), this::onMode3ClearJobSite)
-                .pos(this.leftPos + 8, this.topPos + 69).size(this.autoButtonWidth(Component.literal("变更职业方块")), BUTTON_HEIGHT).build();
+        this.mode3BtnConfig = Button.builder(Component.literal("配置"), this::onMode3Config)
+                .pos(this.leftPos + 8, this.topPos + 50).size(this.autoButtonWidth(Component.literal("配置")), BUTTON_HEIGHT).build();
+        this.mode3BtnClearJobSite = Button.builder(Component.literal("设置职业方块"), this::onMode3ClearJobSite)
+                .pos(this.leftPos + 8, this.topPos + 69).size(this.autoButtonWidth(Component.literal("设置职业方块")), BUTTON_HEIGHT).build();
         this.funcButtons.add(this.addRenderableWidget(this.mode3BtnDelete));
         this.funcButtons.add(this.addRenderableWidget(this.mode3BtnSave));
         this.funcButtons.add(this.addRenderableWidget(this.mode3BtnConfig));
@@ -5767,6 +5830,10 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         // 方案B：发出请求即清空旧列表，避免响应到达前旧数据被点选/删除
         this.mode3TradeIndices = new ArrayList<Integer>();
         this.mode3TradeLabels = new ArrayList<String>();
+        // 清空列表即"无交易/新建"语义：重置运行时选中态，避免残留选中导致保存误走 override 修改
+        this.mode3SelectedRuntime = false;
+        this.mode3SelectedRuntimeIndex = -1;
+        this.mode3DeleteIndex = -1;
         // 职业方块槽位：随职业切换即时刷新禁用状态（配置值待列表响应回填）
         this.updateMode3JobSiteState(this.mode3ProfessionIds.get(this.mode3ProfessionIdx), null);
         PacketDistributor.sendToServer(new ModMessages.RequestTradeListPacket(
@@ -5791,13 +5858,15 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         JsonObject json = new JsonObject();
         json.addProperty("level", Math.clamp(this.mode3Level, 1, 5));
         json.addProperty("cost1", cost1);
-        json.addProperty("cost1Count", Math.clamp(this.mode3Cost1Count, 1, 64));
-        if (!cost2.isEmpty() && this.mode3Cost2Count > 0) {
+        // 保存时直接读取槽内 ItemStack 实际堆叠数量（无数量 GUI 控件）
+        json.addProperty("cost1Count", Math.clamp(this.menu.slots.get(0).getItem().getCount(), 1, 64));
+        if (!cost2.isEmpty()) {
+            // 成本2 槽为空时不写 cost2/cost2Count（等价空槽语义记 0，与 loadMode3TradeFromJson 默认一致）
             json.addProperty("cost2", cost2);
-            json.addProperty("cost2Count", Math.clamp(this.mode3Cost2Count, 1, 64));
+            json.addProperty("cost2Count", Math.clamp(this.menu.slots.get(1).getItem().getCount(), 1, 64));
         }
         json.addProperty("result", result);
-        json.addProperty("resultCount", Math.clamp(this.mode3ResultCount, 1, 64));
+        json.addProperty("resultCount", Math.clamp(this.menu.slots.get(81).getItem().getCount(), 1, 64));
         json.addProperty("maxUses", Math.clamp(this.mode3MaxUses, 1, 9999));
         json.addProperty("xp", Math.clamp(this.mode3Xp, 0, 9999));
         json.addProperty("priceMultiplier", Math.max(0.0f, this.mode3PriceMultiplier));
@@ -5830,15 +5899,15 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             json.addProperty("editIndex", this.mode3TradeIndices.get(this.mode3TradeIdx));
         }
 
-        // 职业方块槽位：读 slot2 物品转方块注册 id；非 POI 方块拦截。
+        // 职业方块槽位：读 slot2 物品转方块注册 id；任意方块均可作为职业方块（不再要求 POI 注册）。
         // 空槽位表示“未修改职业方块”，不清除服务端配置；显式变更请用“变更职业方块”按钮。
         String jobSite = null;
         boolean jobSiteCleared = false;
         if (!this.mode3JobSiteDisabled) {
             String jobItem = this.getItemIdForTradeSlot(2);
             if (!jobItem.isEmpty()) {
-                if (!this.isPoiJobSiteBlock(jobItem)) {
-                    this.showStatus("该物品不是职业方块（无 POI），请放入讲台/工作台等职业方块");
+                if (!this.isBlockItem(jobItem)) {
+                    this.showStatus("该物品不是方块，不能作为职业方块");
                     return;
                 }
                 jobSite = jobItem;
@@ -5926,6 +5995,60 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         }
     }
 
+    /**
+     * 重置 Mode3 交易编辑槽位（成本1/成本2/结果1/结果2）及全部编辑参数，
+     * 用于切换职业/等级或列表无交易时，避免"新建交易"残留上一笔交易物品。
+     */
+    private void resetMode3TradeSlots() {
+        if (this.menu.slots.size() <= 81) return;
+        this.menu.slots.get(0).set(ItemStack.EMPTY);
+        this.menu.slots.get(1).set(ItemStack.EMPTY);
+        this.menu.slots.get(81).set(ItemStack.EMPTY);
+        this.menu.slots.get(80).set(ItemStack.EMPTY);
+        this.mode3Cost1Count = 1;
+        this.mode3Cost2Count = 0;
+        this.mode3ResultCount = 1;
+        this.mode3MaxUses = 12;
+        this.mode3Xp = 2;
+        this.mode3PriceMultiplier = 0.05f;
+        this.mode3NbtMatch0 = false;
+        this.mode3NbtData0 = "";
+        this.mode3NbtMatch1 = false;
+        this.mode3NbtData1 = "";
+        this.mode3NbtMatch81 = false;
+        this.mode3NbtData81 = "";
+        this.mode3NbtMatch80 = false;
+        this.mode3NbtData80 = "";
+        if (this.mode3XpEdit != null) {
+            this.mode3XpEdit.setValue(String.valueOf(this.mode3Xp));
+        }
+    }
+
+    /**
+     * Mode3 交易编辑槽位右键清空：命中 成本1(slot0)/成本2(slot1)/结果1(slot81)/结果2(slot80)
+     * 任一槽位 18x18 区域时清空该槽并复位其 NBT 精准匹配状态，返回 true 拦截原版右键交互。
+     */
+    private boolean handleMode3SlotRightClear(double mouseX, double mouseY) {
+        for (int idx : new int[]{0, 1, 81, 80}) {
+            if (idx >= this.menu.slots.size()) continue;
+            int x = this.slotAbsX(idx);
+            int y = this.slotAbsY(idx);
+            if (mouseX >= (double)x && mouseX < (double)(x + 18)
+                    && mouseY >= (double)y && mouseY < (double)(y + 18)) {
+                this.menu.slots.get(idx).set(ItemStack.EMPTY);
+                switch (idx) {
+                    case 0 -> { this.mode3NbtMatch0 = false; this.mode3NbtData0 = ""; }
+                    case 1 -> { this.mode3NbtMatch1 = false; this.mode3NbtData1 = ""; }
+                    case 81 -> { this.mode3NbtMatch81 = false; this.mode3NbtData81 = ""; }
+                    case 80 -> { this.mode3NbtMatch80 = false; this.mode3NbtData80 = ""; }
+                    default -> { }
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+
     private void onMode3Delete(Button button) {
         // 方案B：列表请求未返回时拒绝删除，避免用旧索引+新职业/等级发送导致"未找到交易"
         if (this.mode3TradeListRequested) {
@@ -5937,23 +6060,28 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             this.showStatus("没有可删除的交易");
             return;
         }
-        // 运行时交易保护：尚无 override 记录（runtimeHasOverride=false）时不可直接删除，
-        // 避免“未找到交易”；可修改后保存生成覆盖记录再删除。
+        // 原版/Mod 运行时交易可直接删除：删除包携带该交易三元组（cost1/cost2/result），
+        // 服务端无 override 时据此生成 deleted 标记（trade_deleted），刷新后交易从村民身上消失。
         int deleteIndex = this.mode3TradeIndices.get(this.mode3TradeIdx);
+        if (deleteIndex == MODE3_NEW_TRADE) {
+            this.showStatus("没有可删除的交易");
+            return;
+        }
+        String deleteCost1 = "", deleteCost2 = "", deleteResult = "";
         if (deleteIndex < 0 && this.mode3TradeIdx < this.mode3TradeJsons.size()) {
             try {
                 JsonObject sel = JsonParser.parseString(this.mode3TradeJsons.get(this.mode3TradeIdx)).getAsJsonObject();
-                if (!sel.has("runtimeHasOverride") || !sel.get("runtimeHasOverride").getAsBoolean()) {
-                    this.showStatus("该原版/Mod 交易尚未保存修改，不能直接删除；可修改后保存生成覆盖记录");
-                    return;
-                }
+                deleteCost1 = sel.has("cost1") ? sel.get("cost1").getAsString() : "";
+                deleteCost2 = sel.has("cost2") ? sel.get("cost2").getAsString() : "";
+                deleteResult = sel.has("result") ? sel.get("result").getAsString() : "";
             } catch (Exception ignored) { }
         }
         this.mode3DeleteIndex = deleteIndex;
         PacketDistributor.sendToServer(new ModMessages.RequestDeleteTradePacket(
                 this.mode3ProfessionIds.get(this.mode3ProfessionIdx),
                 this.mode3DeleteIndex,
-                Math.clamp(this.mode3Level, 1, 5)), new CustomPacketPayload[0]);
+                Math.clamp(this.mode3Level, 1, 5),
+                deleteCost1, deleteCost2, deleteResult), new CustomPacketPayload[0]);
     }
 
     /** 职业名本地化：优先原版实体翻译键（entity.minecraft.villager.<path>），缺失或已中文时保留原名。 */
@@ -5972,22 +6100,23 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         return fallback;
     }
 
-    /** 交易标签本地化：将 “Nx item_id” 中的物品 id 替换为本地化物品名，其余保留。 */
+    /** 交易标签本地化：将 “货币+结果” 组合（cost1[+cost2]→result）中的物品 id 替换为本地化物品名，
+     *  分隔符（+、→）保留原样；匹配不到注册物品时保留原 id。 */
     private String localizeTradeLabel(String label) {
         if (label == null || label.isEmpty()) return label;
         try {
             java.util.regex.Matcher matcher = java.util.regex.Pattern
-                    .compile("(\\d+)[xX] ([a-z0-9_]+(?::[a-z0-9_]+)?)")
+                    .compile("([a-z0-9_]+(?::[a-z0-9_]+)?)")
                     .matcher(label);
             return matcher.replaceAll(match -> {
-                String id = match.group(2);
+                String id = match.group(1);
                 try {
                     var item = BuiltInRegistries.ITEM.getOptional(ResourceLocation.parse(id));
                     if (item.isPresent()) {
-                        return match.group(1) + "x " + item.get().getName(ItemStack.EMPTY).getString();
+                        return item.get().getName(ItemStack.EMPTY).getString();
                     }
                 } catch (Exception ignored) { }
-                return match.group(1) + "x " + id;
+                return id;
             });
         } catch (Exception e) {
             return label;
@@ -6052,7 +6181,30 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         this.mode3TradeLabels = localizedLabels;
         this.mode3TradeIndices = new ArrayList<Integer>(indices);
         this.mode3TradeJsons = new ArrayList<String>(tradeJsons == null ? List.of() : tradeJsons);
+        // "＋ 新建交易"占位：置于下拉首项，列表非空时默认选中新建（保存走服务端新增分支写 trades/<prof>/<n>.json），
+        // 解决删除后列表仍非空时无法新增、保存被误判为修改运行时交易（override）的问题。
+        if (!this.mode3TradeLabels.isEmpty()) {
+            this.mode3TradeLabels.add(0, "＋ 新建交易");
+            this.mode3TradeIndices.add(0, MODE3_NEW_TRADE);
+            this.mode3TradeJsons.add(0, "");
+        }
         this.mode3TradeIdx = Math.clamp(this.mode3TradeIdx, 0, Math.max(0, this.mode3TradeLabels.size() - 1));
+        // 删除响应后的校验：重拉列表后若被删条目的 index 值仍存在，说明服务端删除未生效
+        // （自定义文件删除失败/运行时 deleted 过滤缺失），此时保持选中会让“删除后再添加”
+        // 保存定位到已删条目、且回填内容错位；重置下拉选中态与编辑槽位回到“无选中/新建”语义。
+        // 若 index 值已消失（删除真实生效），保持当前下拉位置（clamp 后指向下一条/新末条），
+        // 槽位由 mode3PreserveSlotsOnReload 保护不回填，不覆盖用户放置内容。
+        if (this.mode3PendingDeletedIndex >= 0) {
+            int pending = this.mode3PendingDeletedIndex;
+            this.mode3PendingDeletedIndex = -1;
+            if (this.mode3TradeIndices.contains(pending)) {
+                this.mode3TradeIdx = 0;
+                this.mode3DeleteIndex = -1;
+                this.mode3SelectedRuntime = false;
+                this.mode3SelectedRuntimeIndex = -1;
+                this.resetMode3TradeSlots();
+            }
+        }
         if (this.mode3TradeDropdown != null) {
             List<String> display = this.mode3TradeLabels.isEmpty()
                     ? new ArrayList<String>(List.of("无交易"))
@@ -6060,16 +6212,31 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             this.mode3TradeDropdown.setOptions(display, this.mode3TradeLabels.isEmpty() ? 0 : this.mode3TradeIdx);
         }
         if (!this.mode3TradeIndices.isEmpty() && this.mode3TradeIdx < this.mode3TradeIndices.size()) {
-            this.mode3DeleteIndex = this.mode3TradeIndices.get(this.mode3TradeIdx);
-            this.mode3SelectedRuntime = this.mode3DeleteIndex < 0;
-            this.mode3SelectedRuntimeIndex = this.mode3SelectedRuntime
-                    ? -this.mode3DeleteIndex - 1 : -1;
-            if (this.mode3TradeIdx < this.mode3TradeJsons.size()) {
-                this.loadMode3TradeFromJson(this.mode3TradeJsons.get(this.mode3TradeIdx));
+            int selectedIdx = this.mode3TradeIndices.get(this.mode3TradeIdx);
+            if (selectedIdx == MODE3_NEW_TRADE) {
+                this.mode3DeleteIndex = -1;
+                this.mode3SelectedRuntime = false;
+                this.mode3SelectedRuntimeIndex = -1;
+                this.mode3PreserveSlotsOnReload = false;
+            } else {
+                this.mode3DeleteIndex = selectedIdx;
+                this.mode3SelectedRuntime = this.mode3DeleteIndex < 0;
+                this.mode3SelectedRuntimeIndex = this.mode3SelectedRuntime
+                        ? -this.mode3DeleteIndex - 1 : -1;
+                if (this.mode3TradeIdx < this.mode3TradeJsons.size()) {
+                    if (this.mode3PreserveSlotsOnReload) {
+                        // 保存/删除响应后的刷新：仅更新列表与选中态，不回填槽位，
+                        // 槽位保留用户正在编辑/新建时放置的物品，避免被原交易覆盖。
+                        this.mode3PreserveSlotsOnReload = false;
+                    } else {
+                        this.loadMode3TradeFromJson(this.mode3TradeJsons.get(this.mode3TradeIdx));
+                    }
+                }
             }
         } else {
-            // 无可编辑交易时重置 NBT 复选框状态，避免残留到下一次选择
-            this.loadMode3TradeFromJson(null);
+            // 无可编辑交易：重置交易槽位与 NBT 复选框状态，避免"新建交易"时残留上一笔交易物品
+            this.mode3PreserveSlotsOnReload = false;
+            this.resetMode3TradeSlots();
         }
         // 职业方块槽位回填：无职业方块职业置灰；可配置职业回填 job_sites/<prof>.json 中的方块
         this.updateMode3JobSiteState(profId, jobSite);
@@ -6105,10 +6272,22 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
             this.showStatus("该职业无职业方块，无需变更");
             return;
         }
-        this.setMode3TradeSlot(2, "", 1);
-        PacketDistributor.sendToServer(new ModMessages.SaveTradePacket(profId, "{}", null, true),
-                new CustomPacketPayload[0]);
-        this.showStatus("已请求变更职业方块（原配置已清除，可放置新方块）");
+        String jobItem = this.getItemIdForTradeSlot(2);
+        if (jobItem.isEmpty()) {
+            // 槽位为空：显式清除当前职业的 job_sites 配置，恢复原版职业方块。
+            PacketDistributor.sendToServer(new ModMessages.SaveTradePacket(profId, "{}", null, true),
+                    new CustomPacketPayload[0]);
+            this.showStatus("已请求清除职业方块配置");
+        } else {
+            // 槽位有方块：直接作为新的职业方块写入配置。
+            if (!isBlockItem(jobItem)) {
+                this.showStatus("该物品不是方块，不能作为职业方块");
+                return;
+            }
+            PacketDistributor.sendToServer(new ModMessages.SaveTradePacket(profId, "{}", jobItem, false),
+                    new CustomPacketPayload[0]);
+            this.showStatus("已请求设置职业方块：" + jobItem);
+        }
     }
 
     /** 无职业方块的职业：nitwit / unemployed / 流浪商人。 */
@@ -6118,15 +6297,10 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
                 || "__wandering_generic__".equals(profId) || "__wandering_rare__".equals(profId);
     }
 
-    /** 校验物品对应的方块是否注册为 POI（职业方块）。 */
-    private boolean isPoiJobSiteBlock(String itemId) {
+    /** 校验物品是否对应任意方块注册项（任意方块均可作为职业方块，不再要求 POI 注册）。 */
+    private boolean isBlockItem(String itemId) {
         try {
-            var blockOptional = BuiltInRegistries.BLOCK.getOptional(ResourceLocation.parse(itemId));
-            if (blockOptional.isEmpty()) return false;
-            for (BlockState state : blockOptional.get().getStateDefinition().getPossibleStates()) {
-                if (PoiTypes.forState(state).isPresent()) return true;
-            }
-            return false;
+            return BuiltInRegistries.BLOCK.getOptional(ResourceLocation.parse(itemId)).isPresent();
         } catch (Exception e) {
             return false;
         }
@@ -6134,11 +6308,20 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
 
     private void onSaveTradeResponse() {
         this.showStatus("交易已保存");
+        // 保存成功后重拉列表，让新增/修改结果立即在下拉可见；mode3PreserveSlotsOnReload 保护
+        // 编辑槽位不回填，用户可继续连续放置/新建多笔交易，且下拉首项"＋ 新建交易"保持新建语义。
+        this.mode3PreserveSlotsOnReload = true;
         this.requestMode3TradeList();
     }
 
     private void onDeleteTradeResponse() {
         this.showStatus("交易已删除");
+        // 删除后需要重拉列表以真实反映删除结果（被删条目从下拉消失）。
+        // 记录本次删除的 GUI 列表索引：重拉后若该索引仍选中已删条目（服务端删除未生效/
+        // 列表未移除），则重置选中态并清空编辑槽，避免 mode3TradeIdx 错位把原交易回填到新槽位。
+        this.mode3PendingDeletedIndex = this.mode3TradeIdx;
+        // 删除后的列表刷新不回填槽位：避免删除动作触发的刷新把选中交易重新回填到编辑槽
+        this.mode3PreserveSlotsOnReload = true;
         this.requestMode3TradeList();
     }
 
@@ -6554,13 +6737,31 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     }
 
     private void onMode3Config(Button button) {
-        // 与 Mode5 配置按钮一致：打开 kubejs/startup_scripts 目录（村民交易数据/脚本所在）
-        File file = new File(this.minecraft.gameDirectory, "kubejs/startup_scripts");
-        if (!file.exists()) {
-            file.mkdirs();
+        // Mode3 村民交易配置数据实际存放在世界存档下 visualcrafting 数据根目录
+        // （trades / trade_overrides / trade_deleted / job_sites 的父目录），
+        // 不再打开 kubejs/startup_scripts。
+        if (this.minecraft == null) return;
+        if (this.minecraft.getSingleplayerServer() != null) {
+            // 单机/局域网：世界根 saves/<世界名>/visualcrafting
+            File worldVcDir = this.minecraft.getSingleplayerServer()
+                    .getWorldPath(LevelResource.ROOT).resolve("visualcrafting").toFile();
+            if (!worldVcDir.exists()) {
+                worldVcDir.mkdirs();
+            }
+            Util.getPlatform().openFile(worldVcDir);
+            return;
         }
-
-        Util.getPlatform().openFile(file);
+        if (this.minecraft.getCurrentServer() != null) {
+            // 连接专用服务器：配置目录在服务端存档，客户端本地不可访问
+            this.showStatus("服务器模式下无法打开交易配置目录（配置保存在服务端存档中）");
+            return;
+        }
+        // 兜底：本地游戏目录下的 visualcrafting 目录
+        File fallbackDir = new File(this.minecraft.gameDirectory, "visualcrafting");
+        if (!fallbackDir.exists()) {
+            fallbackDir.mkdirs();
+        }
+        Util.getPlatform().openFile(fallbackDir);
     }
 
     private void onMode5Config(Button button) {

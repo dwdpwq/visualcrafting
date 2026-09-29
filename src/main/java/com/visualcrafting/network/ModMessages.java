@@ -9,6 +9,8 @@ import com.visualcrafting.block.VisualCraftingBlockEntity;
 import com.visualcrafting.recipe.RecipeRegistrar;
 import com.visualcrafting.screen.VisualCraftingMenu;
 import com.visualcrafting.screen.VisualCraftingScreen;
+import com.visualcrafting.trade.TradeRefreshEvents;
+import com.visualcrafting.trade.VisualCraftingJobSiteHandler;
 import com.visualcrafting.trade.VisualCraftingTradeHandler;
 import com.visualcrafting.worldgen.BlockDisableRegistry;
 import net.minecraft.client.Minecraft;
@@ -335,6 +337,137 @@ public class ModMessages {
     }
 
     /**
+     * 自定义交易 ID 索引（阶段1 TradeIdRegistry 基础）。
+     * profId -> (trade 字符串 ID -> 文件编号集合)。
+     * ID 由「职业 + 交易货币 + 结果」推导（profId|buyItemId|sellItemId[|buyItem2Id]），
+     * 相同交易的重复条目共享同一 ID，因此值必须支持一对多（List）。
+     * 删除时按 GUI 文件编号定位 + ID 校验，精确删单条、不误删同 ID 其他条。
+     * 构建：handleRequestTradeList 全量扫描目录时重建（一次遍历同时完成旧 UUID 文件 id 迁移）；
+     * 增量维护：handleSaveTrade / handleDeleteTrade 写盘成功后立即 put / remove。
+     */
+    private static final Map<String, Map<String, List<Integer>>> CUSTOM_TRADE_ID_INDEX = new ConcurrentHashMap<>();
+
+    /** 重置某职业的自定义交易 ID 索引（列表全量扫描前调用，避免残留过期映射）。 */
+    private static void resetCustomTradeIndex(String profId) {
+        if (profId != null) CUSTOM_TRADE_ID_INDEX.remove(profId);
+    }
+
+    /** 读取交易文件 json 中的 id 字段；无 id 或读取失败返回 null。 */
+    private static String readTradeId(File tradeFile) {
+        try {
+            JsonObject json = JsonParser.parseString(
+                    Files.readString(tradeFile.toPath(), StandardCharsets.UTF_8)).getAsJsonObject();
+            if (!json.has("id")) return null;
+            String id = json.get("id").getAsString();
+            return (id == null || id.isEmpty()) ? null : id;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** 按交易 id 扫描目录文件，返回第一个内容 id 匹配的文件；无匹配返回 null。 */
+    private static File findTradeFileById(File[] tradeFiles, String id) {
+        if (tradeFiles == null || id == null) return null;
+        for (File f : tradeFiles) {
+            if (id.equals(readTradeId(f))) return f;
+        }
+        return null;
+    }
+
+    /** 判断是否为旧版随机 UUID id（迁移前格式）。 */
+    private static boolean isLegacyUuidId(String id) {
+        if (id == null || id.isEmpty()) return false;
+        try {
+            UUID.fromString(id);
+            return true;
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+    }
+
+    /**
+     * 由「职业 + 交易货币 + 结果」推导可读字符串 ID：
+     * profId|buyItemId|sellItemId[|buyItem2Id]。
+     * 物品使用注册名（如 minecraft:emerald），不含数量/NBT；
+     * buyItem2（cost2）为空时省略。相同交易必然生成相同 ID（允许共享）。
+     */
+    private static String generateTradeId(String profId, JsonObject tradeJson) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(profId == null ? "?" : profId);
+        String buy = tradeJson.has("cost1") ? tradeJson.get("cost1").getAsString() : "";
+        String sell = tradeJson.has("result") ? tradeJson.get("result").getAsString() : "";
+        sb.append('|').append((buy == null || buy.isEmpty()) ? "?" : buy);
+        sb.append('|').append((sell == null || sell.isEmpty()) ? "?" : sell);
+        if (tradeJson.has("cost2")) {
+            String buy2 = tradeJson.get("cost2").getAsString();
+            if (buy2 != null && !buy2.isEmpty()) {
+                sb.append('|').append(buy2);
+            }
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 生成带重复解歧的最终 ID：先得基础 ID（profId|buy|sell[|buy2]），
+     * 再检测同 profId 下已存在的相同基础 ID 家族数量：
+     * - 家族内无任何条目：返回 base（第一条无后缀）；
+     * - 已有 N 条：从后缀 N 起，若 base|N 已被占用则顺延（避免删除中间项后撞号）。
+     * 后缀为自然数（从 1 开始），保存/创建时一次性定死并写入文件，不做位置重算。
+     */
+    private static String generateTradeIdWithSuffix(String profId, JsonObject tradeJson) {
+        String base = generateTradeId(profId, tradeJson);
+        if (profId == null) return base;
+        Map<String, List<Integer>> idx = CUSTOM_TRADE_ID_INDEX.get(profId);
+        if (idx == null || idx.isEmpty()) return base;
+        int count = 0;
+        for (String key : idx.keySet()) {
+            if (key.equals(base) || key.startsWith(base + "|")) count++;
+        }
+        if (count == 0) return base;
+        int suffix = count;
+        while (idx.containsKey(base + "|" + suffix)) suffix++;
+        return base + "|" + suffix;
+    }
+
+    /** 提取交易三元组（cost1/cost2/result 注册名）用于编辑前后比较；返回 key 或 null。 */
+    private static String tradeTripleKey(JsonObject json) {
+        if (json == null) return null;
+        StringBuilder sb = new StringBuilder();
+        sb.append(json.has("cost1") ? json.get("cost1").getAsString() : "");
+        sb.append('|');
+        sb.append(json.has("cost2") ? json.get("cost2").getAsString() : "");
+        sb.append('|');
+        sb.append(json.has("result") ? json.get("result").getAsString() : "");
+        return sb.toString();
+    }
+
+    /** 增量维护索引：保存/迁移后追加（id -> 文件编号，去重）。 */
+    private static void putCustomTradeIndex(String profId, String id, int fileIndex) {
+        if (profId == null || id == null) return;
+        List<Integer> list = CUSTOM_TRADE_ID_INDEX.computeIfAbsent(profId, k -> new ConcurrentHashMap<>())
+                .computeIfAbsent(id, k -> java.util.Collections.synchronizedList(new ArrayList<>()));
+        if (!list.contains(fileIndex)) list.add(fileIndex);
+    }
+
+    /** 增量维护索引：删除成功后按编号移除单条；该 ID 无剩余编号时移除整个键。 */
+    private static void removeCustomTradeIndex(String profId, String id, int fileIndex) {
+        if (profId == null || id == null) return;
+        Map<String, List<Integer>> idx = CUSTOM_TRADE_ID_INDEX.get(profId);
+        if (idx == null) return;
+        List<Integer> list = idx.get(id);
+        if (list == null) return;
+        list.remove((Integer) fileIndex);
+        if (list.isEmpty()) idx.remove(id);
+    }
+
+    /** 查询索引：返回 id 对应的全部文件编号；未命中返回 null。 */
+    private static List<Integer> getCustomTradeIndex(String profId, String id) {
+        if (profId == null || id == null) return null;
+        Map<String, List<Integer>> idx = CUSTOM_TRADE_ID_INDEX.get(profId);
+        return idx == null ? null : idx.get(id);
+    }
+
+    /**
      * 将玩家配方编辑写入暂存目录（pending），供 MergeManager 磁盘合并。
      * 文件名规则：{玩家UUID}_visualcrafting_{产出物归属mod}.json
      * 写失败仅打印日志，不中断主流程。
@@ -551,7 +684,7 @@ public class ModMessages {
             if (vcBe == null) return;
 
             vcBe.addRecipe(new VisualCraftingBlockEntity.SavedRecipe(
-                    packet.shaped, packet.result, packet.ingredients));
+                    packet.shaped, packet.result, packet.ingredients, packet.saveNbt()));
 
             String outputId = BuiltInRegistries.ITEM.getKey(packet.result.getItem()).toString();
             List<VisualCraftingBlockEntity.SavedRecipe> recipes = vcBe.getRecipes();
@@ -1131,12 +1264,6 @@ public class ModMessages {
                         }
                     }
                 }
-
-                // 统一入口：模式 3 也可以直接编辑流浪商人的普通/稀有交易池。
-                profIds.add("__wandering_generic__");
-                profNames.add("流浪商人 · 普通交易");
-                profIds.add("__wandering_rare__");
-                profNames.add("流浪商人 · 稀有交易");
             } catch (Exception e) {
                 LOGGER.error("[VisualCrafting] Failed to load mode4 data: " + e.getMessage());
             }
@@ -1186,9 +1313,19 @@ public class ModMessages {
                 File jobSiteDir = new File(new File(worldDir, "visualcrafting"), "job_sites");
                 File jobSiteFile = new File(jobSiteDir, jobSiteDirectoryId(profId) + ".json");
                 if (packet.jobSiteCleared) {
-                    // 显式清除：删除职业方块配置，恢复原版职业方块。
-                    if (jobSiteFile.isFile() && jobSiteFile.delete()) {
-                        LOGGER.info("[VisualCrafting] job-site cleared for " + profId);
+                    // 修复3：显式清除分支日志增强——区分 cleared / not-found / delete-failed。
+                    if (jobSiteFile.isFile()) {
+                        if (jobSiteFile.delete()) {
+                            LOGGER.info("[VisualCrafting] job-site cleared for " + profId
+                                    + " (deleted " + jobSiteFile.getAbsolutePath() + ")");
+                            VisualCraftingJobSiteHandler.refreshCache(serverPlayer.server);
+                        } else {
+                            LOGGER.error("[VisualCrafting] job-site delete-failed for " + profId
+                                    + " at " + jobSiteFile.getAbsolutePath());
+                        }
+                    } else {
+                        LOGGER.info("[VisualCrafting] job-site clear requested but not-found for " + profId
+                                + " (" + jobSiteFile.getAbsolutePath() + ")");
                     }
                     PacketDistributor.sendToPlayer(serverPlayer, new SaveTradeResponsePacket());
                     return;
@@ -1201,15 +1338,31 @@ public class ModMessages {
                                 Component.literal("该职业方块已被职业 " + dupProf + " 使用，职业方块未更新"),
                                 false);
                     } else {
+                        // 修复3：set 分支日志增强——写盘成功/失败明确区分。
                         jobSiteDir.mkdirs();
                         JsonObject jobJson = new JsonObject();
                         jobJson.addProperty("block", packet.jobSite);
-                        Files.writeString(jobSiteFile.toPath(), GSON.toJson(jobJson), StandardCharsets.UTF_8);
-                        LOGGER.info("[VisualCrafting] job-site set " + packet.jobSite + " for " + profId);
+                        try {
+                            Files.writeString(jobSiteFile.toPath(), GSON.toJson(jobJson), StandardCharsets.UTF_8);
+                            LOGGER.info("[VisualCrafting] job-site set " + packet.jobSite + " for " + profId
+                                    + " (" + jobSiteFile.getAbsolutePath() + ")");
+                            VisualCraftingJobSiteHandler.refreshCache(serverPlayer.server);
+                        } catch (Exception we) {
+                            LOGGER.error("[VisualCrafting] job-site write-failed for " + profId
+                                    + " block=" + packet.jobSite + ": " + we.getMessage());
+                        }
                     }
                 } else {
                     // 槽位为空且未显式清除：保留服务端现有配置。
                     LOGGER.info("[VisualCrafting] job-site untouched for " + profId);
+                }
+
+                // 纯职业方块操作包（tradeJson 为 "{}"，不含任何交易字段）：job-site 已处理，
+                // 直接返回，避免把空对象当作交易保存到 trades 目录。
+                if (!tradeJson.has("cost1") && !tradeJson.has("result")
+                        && !tradeJson.has("override") && !tradeJson.has("editIndex")) {
+                    PacketDistributor.sendToPlayer(serverPlayer, new SaveTradeResponsePacket());
+                    return;
                 }
 
                 boolean override = tradeJson.has("override") && tradeJson.get("override").getAsBoolean();
@@ -1240,6 +1393,8 @@ public class ModMessages {
                     tradeJson.remove("override");
                     tradeJson.remove("overrideIndex");
                     Files.writeString(overrideFile.toPath(), GSON.toJson(tradeJson), StandardCharsets.UTF_8);
+                    // 用户重新保存覆盖记录 = 撤销该条目的删除标记，避免 reload 后交易仍被过滤
+                    clearRuntimeDeleteMark(worldDir, profId, level, index);
                     serverPlayer.displayClientMessage(
                             Component.literal("已修改交易 #" + (index + 1)), false);
                     PacketDistributor.sendToPlayer(serverPlayer, new SaveTradeResponsePacket());
@@ -1271,8 +1426,35 @@ public class ModMessages {
                     if (editIndex >= 0) {
                         File editFile = new File(profDir, editIndex + ".json");
                         if (editFile.isFile()) {
+                            // 阶段1：编辑时比较三元组（cost1/cost2/result）——
+                            // 内容变化则按新内容重新生成 ID（含重复解歧后缀）；
+                            // 内容未变则保留原 id（旧文件无 id / 旧 UUID 时按当前内容生成）
+                            JsonObject oldJson = null;
+                            try {
+                                oldJson = JsonParser.parseString(
+                                        Files.readString(editFile.toPath(), StandardCharsets.UTF_8)).getAsJsonObject();
+                            } catch (Exception ignored) {
+                            }
+                            String oldId = readTradeId(editFile);
+                            String newTriple = tradeTripleKey(tradeJson);
+                            String existingId;
+                            if (oldJson == null || !newTriple.equals(tradeTripleKey(oldJson))) {
+                                // 三元组变化（或旧文件不可读）：按新内容重新生成
+                                existingId = generateTradeIdWithSuffix(profId, tradeJson);
+                            } else {
+                                // 三元组未变：保留原 id；无 id / 旧 UUID 时按新内容生成
+                                existingId = oldId;
+                                if (existingId == null || existingId.isEmpty() || isLegacyUuidId(existingId)) {
+                                    existingId = generateTradeIdWithSuffix(profId, tradeJson);
+                                }
+                            }
+                            tradeJson.addProperty("id", existingId);
                             tradeJson.remove("editIndex");
                             Files.writeString(editFile.toPath(), GSON.toJson(tradeJson), StandardCharsets.UTF_8);
+                            if (oldId != null && !oldId.isEmpty() && !oldId.equals(existingId)) {
+                                removeCustomTradeIndex(profId, oldId, editIndex);
+                            }
+                            putCustomTradeIndex(profId, existingId, editIndex);
                             serverPlayer.displayClientMessage(
                                     Component.literal("已修改交易 #" + (editIndex + 1)), false);
                             PacketDistributor.sendToPlayer(serverPlayer, new SaveTradeResponsePacket());
@@ -1282,8 +1464,14 @@ public class ModMessages {
                     tradeJson.remove("editIndex");
                 }
 
+                // 阶段1：新增自定义交易一次性定死可读字符串 ID（profId|buyItemId|sellItemId[|buyItem2Id]）。
+                // 同 profId 下相同基础 ID 已有条目时追加自然数后缀解歧（第2条起 |1、|2...）
+                String tradeId = generateTradeIdWithSuffix(profId, tradeJson);
+                tradeJson.addProperty("id", tradeId);
+
                 File tradeFile = new File(profDir, nextIndex + ".json");
                 Files.writeString(tradeFile.toPath(), GSON.toJson(tradeJson), StandardCharsets.UTF_8);
+                putCustomTradeIndex(profId, tradeId, nextIndex);
 
                 // 自动 reload 已移除：脚本已写入，需手动执行 /reload 后生效
                 int tradeLevel = Math.clamp(tradeJson.has("level") ? tradeJson.get("level").getAsInt() : 1, 1, 5);
@@ -1353,11 +1541,36 @@ public class ModMessages {
                         removedOverride = f.isFile() && f.delete();
                     }
                     if (removedOverride) {
+                        // 缓存保持“override 后完整列表”（原始索引），不做本地移除：
+                        // GUI 重拉时该条显示原版内容（override 已删 = 恢复原版）；
+                        // 若在此移除缓存会使剩余条目索引左移，与 override/deleted 文件
+                        // 按原始索引命名的体系错位，导致后续保存/删除定位到错误条目。
                         serverPlayer.displayClientMessage(
-                                Component.literal("已删除交易 #" + (-packet.tradeIndex)), false);
+                                Component.literal("已删除交易 #" + (-packet.tradeIndex)
+                                        + "，交易列表已同步更新（重进后原版交易将恢复）"), false);
+                        // 修复1：删除 override 后同样立即静默 /reload，恢复原版交易即时生效。
+                        TradeRefreshEvents.scheduleImmediateReload(serverPlayer.server);
                     } else {
-                        serverPlayer.displayClientMessage(
-                                Component.literal("未找到交易 #" + (-packet.tradeIndex)), false);
+                        // 无 override 覆盖记录：这是原版/Mod 运行时交易，不再提示“不能直接删除”，
+                        // 改为写入 deleted 标记（独立目录，与 override 区分），事件注入时按 ID 过滤。
+                        String markId = writeRuntimeDeleteMark(serverPlayer, worldDir, profId, level,
+                                runtimeIndex, packet.cost1, packet.cost2, packet.result);
+                        if (markId != null) {
+                            // 缓存保持完整列表（原始索引），不做本地移除：
+                            // GUI 重拉时 handleRequestTradeList 按 deleted 标记跳过显示，
+                            // 索引仍为原版事件原始位置，后续保存/删除定位不左移，
+                            // 不会因 clearRuntimeDeleteMark 撤销相邻条目的删除标记而“恢复已删交易”。
+                            serverPlayer.displayClientMessage(
+                                    Component.literal("已删除交易 #" + (-packet.tradeIndex)
+                                            + "（原版/Mod），交易列表已同步更新"), false);
+                            // 修复1：删除成功后立即静默 /reload 重建交易表，过滤即时生效，
+                            // 新生成村民不再含被删交易（无需手动 /reload 或重进）。
+                            TradeRefreshEvents.scheduleImmediateReload(serverPlayer.server);
+                        } else {
+                            serverPlayer.displayClientMessage(
+                                    Component.literal("未找到交易 #" + (-packet.tradeIndex)
+                                            + "（无法识别该原版/Mod 交易的三元组，删除失败）"), false);
+                        }
                     }
                     PacketDistributor.sendToPlayer(serverPlayer, new DeleteTradeResponsePacket());
                     return;
@@ -1370,10 +1583,42 @@ public class ModMessages {
                 if (tradeFiles != null) {
                     // 按文件名数字编号精确匹配删除（GUI 下发的是文件编号，编号可能不连续，
                     // 不能按排序后数组下标删除，否则编号有 gap 时会删错/删不到文件）。
+                    File target = null;
                     for (File f : tradeFiles) {
                         if (tradeFileIndex(f) == packet.tradeIndex) {
-                            deleted = f.delete();
+                            target = f;
                             break;
+                        }
+                    }
+                    if (target != null) {
+                        // 阶段1：按 GUI 文件编号定位 + ID 校验（CUSTOM_TRADE_ID_INDEX），
+                        // 重复项共享同一 ID 时精确删单条、不误删同 ID 其他条；
+                        // 旧文件无 id / 旧 UUID（未迁移）退化为编号匹配（兼容路径）。
+                        String targetId = readTradeId(target);
+                        if (targetId == null || targetId.isEmpty() || isLegacyUuidId(targetId)) {
+                            // 旧文件无 id / 旧 UUID：按编号删除（与旧行为一致）
+                            deleted = target.delete();
+                        } else {
+                            File matched = null;
+                            // 路径1：缓存命中且编号列表包含 GUI 下发编号（ID 校验通过），
+                            // 删除对象就是编号定位的 target 自身，同 ID 其他条不受影响
+                            List<Integer> cached = getCustomTradeIndex(profId, targetId);
+                            if (cached != null && cached.contains(packet.tradeIndex)) {
+                                matched = target;
+                            }
+                            // 路径2：缓存未命中/不一致，回退扫描目录按 id + 编号双匹配兜底
+                            if (matched == null) {
+                                File byId = findTradeFileById(tradeFiles, targetId);
+                                if (byId != null && tradeFileIndex(byId) == packet.tradeIndex) {
+                                    matched = byId;
+                                }
+                            }
+                            if (matched != null) {
+                                deleted = matched.delete();
+                                if (deleted) {
+                                    removeCustomTradeIndex(profId, targetId, packet.tradeIndex);
+                                }
+                            }
                         }
                     }
                 }
@@ -1384,7 +1629,10 @@ public class ModMessages {
                             Component.literal("未找到交易 #" + packet.tradeIndex), false);
                 } else {
                     serverPlayer.displayClientMessage(
-                            Component.literal("已删除交易 #" + packet.tradeIndex), false);
+                            Component.literal("已删除交易 #" + packet.tradeIndex
+                                    + "，交易已删除，正在刷新交易表即时生效"), false);
+                    // 修复1：删除成功后立即静默 /reload 重建交易表，过滤即时生效。
+                    TradeRefreshEvents.scheduleImmediateReload(serverPlayer.server);
                 }
 
                 PacketDistributor.sendToPlayer(serverPlayer, new DeleteTradeResponsePacket());
@@ -1394,6 +1642,182 @@ public class ModMessages {
                         Component.literal("交易删除失败：" + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage())), false);
             }
         });
+    }
+
+    /**
+     * 删除成功后同步从运行时缓存移除对应条目，使客户端重拉列表立即生效。
+     * profId 为流浪商人（minecraft:wandering_trader）或历史池入口（__wandering_generic__/__wandering_rare__）
+     * 时按池映射移除 wandering 缓存；其余按职业+等级移除 villager 缓存。
+     */
+    private static void removeRuntimeFromCache(String profId, int level, int runtimeIndex) {
+        try {
+            if ("minecraft:wandering_trader".equals(profId)) {
+                VisualCraftingTradeHandler.removeRuntimeWanderingTrade("generic", runtimeIndex);
+                VisualCraftingTradeHandler.removeRuntimeWanderingTrade("rare", runtimeIndex);
+            } else if ("__wandering_generic__".equals(profId)) {
+                VisualCraftingTradeHandler.removeRuntimeWanderingTrade("generic", runtimeIndex);
+            } else if ("__wandering_rare__".equals(profId)) {
+                VisualCraftingTradeHandler.removeRuntimeWanderingTrade("rare", runtimeIndex);
+            } else {
+                VisualCraftingTradeHandler.removeRuntimeVillagerTrade(profId, level, runtimeIndex);
+            }
+        } catch (Exception e) {
+            LOGGER.error("[VisualCrafting] Failed to remove runtime trade from cache: "
+                    + profId + " #" + runtimeIndex + ": " + e.getMessage());
+        }
+    }
+
+    /**
+     * 为原版/Mod 运行时交易写入 deleted 标记（无 override 覆盖时调用）。
+     * 落盘目录与 override 完全区分：
+     *   world/visualcrafting/trade_deleted/villager/<profDir>/<level>-<index>.json
+     *   world/visualcrafting/trade_deleted/wandering/<pool>-<index>.json
+     * 标记 ID 按现 ID 体系生成 profId|cost1|result[|cost2]；同职业同三元组多条运行时交易
+     * 共享基础 ID，事件过滤按 ID 匹配整组移除；标记文件间按基础 ID 家族计数追加自然数后缀，
+     * 保证每个标记文件 ID 唯一（与 generateTradeIdWithSuffix 语义一致）。
+     * 优先使用客户端包携带的三元组；缺失时从运行时缓存重建预览 offer 兜底。
+     * @return 写入的标记 id；识别/写入失败返回 null
+     */
+    private static String writeRuntimeDeleteMark(ServerPlayer serverPlayer, File worldDir, String profId,
+                                                 int level, int runtimeIndex,
+                                                 String cost1, String cost2, String result) {
+        try {
+            String c1 = cost1 == null ? "" : cost1.trim();
+            String c2 = cost2 == null ? "" : cost2.trim();
+            String rs = result == null ? "" : result.trim();
+            if (c1.isEmpty() || rs.isEmpty()) {
+                // 兜底：从运行时缓存重建该条目的三元组（与列表请求同源逻辑）
+                boolean wandering = "minecraft:wandering_trader".equals(profId);
+                List<VillagerTrades.ItemListing> listings;
+                if (wandering) {
+                    listings = VisualCraftingTradeHandler.getRuntimeWanderingTrades(level == 2 ? "rare" : "generic");
+                } else {
+                    listings = VisualCraftingTradeHandler.getRuntimeVillagerTrades(profId, level);
+                }
+                if (runtimeIndex >= 0 && runtimeIndex < listings.size()) {
+                    MerchantOffer offer = createPreviewOffer(serverPlayer, profId, level, listings.get(runtimeIndex));
+                    if (offer != null) {
+                        JsonObject json = merchantOfferToTradeJson(offer);
+                        c1 = json.has("cost1") ? json.get("cost1").getAsString() : "";
+                        c2 = json.has("cost2") ? json.get("cost2").getAsString() : "";
+                        rs = json.has("result") ? json.get("result").getAsString() : "";
+                    }
+                }
+                if (c1.isEmpty() || rs.isEmpty()) return null;
+            }
+
+            JsonObject triple = new JsonObject();
+            triple.addProperty("cost1", c1);
+            if (!c2.isEmpty()) triple.addProperty("cost2", c2);
+            triple.addProperty("result", rs);
+            String base = generateTradeId(profId, triple);
+
+            File deletedRoot = new File(new File(worldDir, "visualcrafting"), "trade_deleted");
+            File deletedDir;
+            String fileName;
+            if ("minecraft:wandering_trader".equals(profId)) {
+                String pool = level == 2 ? "rare" : "generic";
+                deletedDir = new File(deletedRoot, "wandering");
+                fileName = pool + "-" + runtimeIndex + ".json";
+            } else {
+                deletedDir = new File(new File(deletedRoot, "villager"), profileDirectoryId(profId));
+                fileName = level + "-" + runtimeIndex + ".json";
+            }
+            deletedDir.mkdirs();
+            File markFile = new File(deletedDir, fileName);
+
+            // 同一 runtimeIndex 重复删除：沿用已有标记 ID（幂等）；新条目按家族计数解歧后缀
+            String id = base;
+            if (markFile.isFile()) {
+                try {
+                    JsonObject old = JsonParser.parseString(
+                            Files.readString(markFile.toPath(), StandardCharsets.UTF_8)).getAsJsonObject();
+                    if (old.has("id")) id = old.get("id").getAsString();
+                } catch (Exception ignored) { }
+            }
+            if (id.equals(base)) {
+                int count = countDeletedFamily(deletedDir, base);
+                if (count > 0) {
+                    int suffix = count;
+                    while (deletedFamilyContains(deletedDir, base + "|" + suffix)) suffix++;
+                    id = base + "|" + suffix;
+                }
+            }
+
+            JsonObject mark = new JsonObject();
+            mark.addProperty("id", id);
+            mark.addProperty("profId", profId);
+            mark.addProperty("level", level);
+            mark.addProperty("runtimeIndex", runtimeIndex);
+            mark.addProperty("cost1", c1);
+            mark.addProperty("cost2", c2);
+            mark.addProperty("result", rs);
+            mark.addProperty("deletedAt", System.currentTimeMillis());
+            Files.writeString(markFile.toPath(), GSON.toJson(mark), StandardCharsets.UTF_8);
+            LOGGER.info("[VisualCrafting] Deleted runtime trade {} #{} id={} -> {}",
+                    profId, runtimeIndex, id, markFile.getAbsolutePath());
+            return id;
+        } catch (Exception e) {
+            LOGGER.error("[VisualCrafting] Failed to write deleted mark for "
+                    + profId + " #" + runtimeIndex + ": " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 用户重新保存 override 覆盖记录 = 撤销该条目的删除标记，
+     * 避免 reload 后该交易仍被 deleted 过滤（恢复“保存修改 → 交易重新出现”）。
+     */
+    private static void clearRuntimeDeleteMark(File worldDir, String profId, int level, int runtimeIndex) {
+        try {
+            File deletedRoot = new File(new File(worldDir, "visualcrafting"), "trade_deleted");
+            File deletedDir;
+            String fileName;
+            if ("minecraft:wandering_trader".equals(profId)) {
+                String pool = level == 2 ? "rare" : "generic";
+                deletedDir = new File(deletedRoot, "wandering");
+                fileName = pool + "-" + runtimeIndex + ".json";
+            } else {
+                deletedDir = new File(new File(deletedRoot, "villager"), profileDirectoryId(profId));
+                fileName = level + "-" + runtimeIndex + ".json";
+            }
+            File mark = new File(deletedDir, fileName);
+            if (mark.isFile()) {
+                mark.delete();
+                LOGGER.info("[VisualCrafting] Cleared deleted mark " + mark.getAbsolutePath());
+            }
+        } catch (Exception e) {
+            LOGGER.error("[VisualCrafting] Failed to clear deleted mark: " + e.getMessage());
+        }
+    }
+
+    /** 统计 deleted 目录中同基础 ID 家族的标记数量（用于后缀解歧）。 */
+    private static int countDeletedFamily(File deletedDir, String base) {
+        int count = 0;
+        File[] files = deletedDir.listFiles((d, n) -> n.endsWith(".json"));
+        if (files == null) return 0;
+        for (File f : files) {
+            try {
+                JsonObject json = JsonParser.parseString(
+                        Files.readString(f.toPath(), StandardCharsets.UTF_8)).getAsJsonObject();
+                String id = json.has("id") ? json.get("id").getAsString() : "";
+                if (id.equals(base) || id.startsWith(base + "|")) count++;
+            } catch (Exception ignored) { }
+        }
+        return count;
+    }
+
+    private static boolean deletedFamilyContains(File deletedDir, String candidate) {
+        File[] files = deletedDir.listFiles((d, n) -> n.endsWith(".json"));
+        if (files == null) return false;
+        for (File f : files) {
+            try {
+                JsonObject json = JsonParser.parseString(
+                        Files.readString(f.toPath(), StandardCharsets.UTF_8)).getAsJsonObject();
+                if (candidate.equals(json.has("id") ? json.get("id").getAsString() : "")) return true;
+            } catch (Exception ignored) { }
+        }
+        return false;
     }
 
     private static void handleDeleteTradeResponse(DeleteTradeResponsePacket packet, IPayloadContext ctx) {
@@ -1462,13 +1886,33 @@ public class ModMessages {
                     if (offer == null) continue;
 
                     JsonObject json = merchantOfferToTradeJson(offer);
+                    // 删除过滤：已写 deleted 标记的运行时交易不再出现在 GUI 列表，
+                    // 但索引仍保持原版事件原始位置（不左移），保证后续保存/删除按原始索引
+                    // 定位 override/deleted 文件，不会撤销相邻条目的删除标记导致“恢复已删交易”。
+                    if (wandering) {
+                        String pool = (level == 2 ? "rare" : "generic");
+                        if (VisualCraftingTradeHandler.isWanderingRuntimeTradeDeleted(
+                                worldDir, pool,
+                                json.has("cost1") ? json.get("cost1").getAsString() : "",
+                                json.has("cost2") ? json.get("cost2").getAsString() : "",
+                                json.has("result") ? json.get("result").getAsString() : "")) {
+                            continue;
+                        }
+                    } else {
+                        if (VisualCraftingTradeHandler.isVillagerRuntimeTradeDeleted(
+                                worldDir, profId, level,
+                                json.has("cost1") ? json.get("cost1").getAsString() : "",
+                                json.has("cost2") ? json.get("cost2").getAsString() : "",
+                                json.has("result") ? json.get("result").getAsString() : "")) {
+                            continue;
+                        }
+                    }
                     json.addProperty("runtime", true);
                     json.addProperty("runtimeIndex", runtimeIndex);
                     json.addProperty("runtimeHasOverride", hasOverride);
                     json.addProperty("level", level);
 
-                    labels.add("原版/Mod " + (runtimeIndex + 1) + ". "
-                            + tradeLabel(offer.getCostA(), offer.getCostB(), offer.getResult()));
+                    labels.add(tradeLabel(offer.getCostA(), offer.getCostB(), offer.getResult()));
                     indices.add(-(runtimeIndex + 1));
                     tradeJsons.add(GSON.toJson(json));
                 }
@@ -1477,6 +1921,8 @@ public class ModMessages {
                 File profDir = getTradeProfessionDirectory(worldDir, profId, false);
                 File[] files = profDir.listFiles((d, name) -> name.endsWith(".json"));
                 if (files != null) {
+                    // 阶段1：全量扫描前重建该职业的 ID 索引（一次遍历同时完成旧文件 id 迁移与建索引）
+                    resetCustomTradeIndex(profId);
                     Arrays.sort(files, Comparator.comparingInt(ModMessages::tradeFileIndex)
                             .thenComparing(File::getName));
                     for (File file : files) {
@@ -1490,6 +1936,18 @@ public class ModMessages {
                             // 标签以 [LvN] 前缀标注等级；删除/编辑仍以文件名编号为准。
                             // clear-<level>.json 只是“清空本级”标记，不是可编辑交易，不能出现在交易下拉框。
                             if (json.has("clearExisting") && json.get("clearExisting").getAsBoolean()) continue;
+                            // 阶段1：旧文件无 id / 旧 UUID 时迁移为可读字符串 ID 并回写文件，
+                            // 列表回传 json 携带 id；相同交易共享同一 ID（一对多索引）
+                            String tradeId = json.has("id") ? json.get("id").getAsString() : "";
+                            if (tradeId == null || tradeId.isEmpty() || isLegacyUuidId(tradeId)) {
+                                // 旧 UUID / 无 id 迁移为可读 base ID；若同 profId 已有相同 base 则追加自然数后缀
+                                tradeId = generateTradeIdWithSuffix(profId, json);
+                                json.addProperty("id", tradeId);
+                                Files.writeString(file.toPath(), GSON.toJson(json), StandardCharsets.UTF_8);
+                            }
+                            if (tradeId != null && !tradeId.isEmpty()) {
+                                putCustomTradeIndex(profId, tradeId, index);
+                            }
                             String cost1 = json.has("cost1") ? json.get("cost1").getAsString() : "";
                             String cost2 = json.has("cost2") ? json.get("cost2").getAsString() : "";
                             String result = json.has("result") ? json.get("result").getAsString() : "";
@@ -1497,13 +1955,14 @@ public class ModMessages {
                             int cost2Count = json.has("cost2Count") ? json.get("cost2Count").getAsInt() : 0;
                             int resultCount = json.has("resultCount") ? json.get("resultCount").getAsInt() : 1;
 
+                            // 显示名统一为“货币+结果”（cost1[+cost2]→result），不带数量与来源/序号前缀；
+                            // 等级标注此前随“自定义 N.”前缀一并移除，跨等级重名条目仅按下拉顺序区分。
                             StringBuilder label = new StringBuilder();
-                            label.append("自定义 ").append(index + 1).append(". [Lv").append(tradeLevel).append("] ")
-                                    .append(cost1Count).append("x ").append(shortItemId(cost1));
+                            label.append(shortItemId(cost1));
                             if (!cost2.isEmpty() && cost2Count > 0) {
-                                label.append(" + ").append(cost2Count).append("x ").append(shortItemId(cost2));
+                                label.append("+").append(shortItemId(cost2));
                             }
-                            label.append(" → ").append(resultCount).append("x ").append(shortItemId(result));
+                            label.append("→").append(shortItemId(result));
 
                             labels.add(label.toString());
                             indices.add(index);
@@ -1577,16 +2036,17 @@ public class ModMessages {
         return itemId.startsWith("minecraft:") ? itemId.substring("minecraft:".length()) : itemId;
     }
 
+    /**
+     * 生成“货币+结果”组合名（展示层）：cost1[+cost2]→result，均为物品注册名短名；
+     * 不带数量、不带来源/序号前缀。仅用于 GUI 下拉框展示，不参与删除/筛选（删除按索引与三元组）。
+     */
     private static String tradeLabel(ItemStack costA, ItemStack costB, ItemStack result) {
         StringBuilder label = new StringBuilder();
-        label.append(costA.getCount()).append("x ")
-                .append(shortItemId(BuiltInRegistries.ITEM.getKey(costA.getItem()).toString()));
+        label.append(shortItemId(BuiltInRegistries.ITEM.getKey(costA.getItem()).toString()));
         if (costB != null && !costB.isEmpty()) {
-            label.append(" + ").append(costB.getCount()).append("x ")
-                    .append(shortItemId(BuiltInRegistries.ITEM.getKey(costB.getItem()).toString()));
+            label.append("+").append(shortItemId(BuiltInRegistries.ITEM.getKey(costB.getItem()).toString()));
         }
-        label.append(" → ").append(result.getCount()).append("x ")
-                .append(shortItemId(BuiltInRegistries.ITEM.getKey(result.getItem()).toString()));
+        label.append("→").append(shortItemId(BuiltInRegistries.ITEM.getKey(result.getItem()).toString()));
         return label.toString();
     }
 
@@ -1757,6 +2217,7 @@ public class ModMessages {
             for (VisualCraftingBlockEntity.SavedRecipe r : pkt.recipes) {
                 buf.writeBoolean(r.shaped);
                 buf.writeBoolean(r.banned);
+                buf.writeBoolean(r.saveNbt);
                 ItemStack.STREAM_CODEC.encode(buf, r.result);
                 buf.writeVarInt(r.ingredients.size());
                 for (ItemStack stack : r.ingredients) {
@@ -1772,13 +2233,14 @@ public class ModMessages {
             for (int i = 0; i < total; i++) {
                 boolean shaped = buf.readBoolean();
                 boolean banned = buf.readBoolean();
+                boolean saveNbt = buf.readBoolean();
                 ItemStack result = ItemStack.STREAM_CODEC.decode(buf);
                 int ingCount = buf.readVarInt();
                 List<ItemStack> ingredients = new ArrayList<>();
                 for (int j = 0; j < ingCount; j++) {
                     ingredients.add(ItemStack.OPTIONAL_STREAM_CODEC.decode(buf));
                 }
-                recipes.add(new VisualCraftingBlockEntity.SavedRecipe(shaped, banned, result, ingredients));
+                recipes.add(new VisualCraftingBlockEntity.SavedRecipe(shaped, banned, result, ingredients, saveNbt));
             }
             return new SyncRecipesPacket(pos, recipes);
         }
@@ -2219,7 +2681,8 @@ public class ModMessages {
         public Type<SaveTradeResponsePacket> type() { return TYPE; }
     }
 
-    public record RequestDeleteTradePacket(String profId, int tradeIndex, int level) implements CustomPacketPayload {
+    public record RequestDeleteTradePacket(String profId, int tradeIndex, int level,
+                                           String cost1, String cost2, String result) implements CustomPacketPayload {
         public static final Type<RequestDeleteTradePacket> TYPE = new Type<>(DELETE_TRADE_ID);
         public static final StreamCodec<RegistryFriendlyByteBuf, RequestDeleteTradePacket> STREAM_CODEC =
                 StreamCodec.of(RequestDeleteTradePacket::encode, RequestDeleteTradePacket::decode);
@@ -2231,10 +2694,25 @@ public class ModMessages {
             buf.writeUtf(pkt.profId);
             buf.writeVarInt(pkt.tradeIndex);
             buf.writeVarInt(pkt.level);
+            // 追加三元组（cost1/cost2/result）：供服务端对无 override 的原版/Mod 运行时交易
+            // 生成 deleted 标记 ID。字段写在末尾，decode 按剩余可读字节判断——
+            // 旧客户端包不携带这三个字段时不读取，保持向后兼容。
+            buf.writeUtf(pkt.cost1 == null ? "" : pkt.cost1);
+            buf.writeUtf(pkt.cost2 == null ? "" : pkt.cost2);
+            buf.writeUtf(pkt.result == null ? "" : pkt.result);
         }
 
         private static RequestDeleteTradePacket decode(RegistryFriendlyByteBuf buf) {
-            return new RequestDeleteTradePacket(buf.readUtf(), buf.readVarInt(), buf.readVarInt());
+            String profId = buf.readUtf();
+            int tradeIndex = buf.readVarInt();
+            int level = buf.readVarInt();
+            String cost1 = "", cost2 = "", result = "";
+            if (buf.readableBytes() > 0) {
+                cost1 = buf.readUtf();
+                cost2 = buf.readUtf();
+                result = buf.readUtf();
+            }
+            return new RequestDeleteTradePacket(profId, tradeIndex, level, cost1, cost2, result);
         }
     }
 

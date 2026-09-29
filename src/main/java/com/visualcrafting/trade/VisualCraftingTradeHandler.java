@@ -7,9 +7,15 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtUtils;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.RandomSource;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.entity.npc.VillagerData;
+import net.minecraft.world.entity.npc.VillagerProfession;
 import net.minecraft.world.entity.npc.VillagerTrades;
+import net.minecraft.world.entity.npc.WanderingTrader;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.item.trading.MerchantOffer;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.common.BasicItemListing;
@@ -31,6 +37,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.HashMap;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -80,6 +87,37 @@ public final class VisualCraftingTradeHandler {
         return listings == null ? List.of() : List.copyOf(listings);
     }
 
+    /**
+     * 删除成功后从运行时缓存移除单条，使 GUI 重拉列表立即看不到该条（无需 /reload）。
+     * 与 writeRuntimeDeleteMark 配套：deleted 标记照写，reload/重进后事件注入过滤保持一致。
+     * @return 找到并移除返回 true；池不存在或索引越界返回 false
+     */
+    public static boolean removeRuntimeWanderingTrade(String pool, int index) {
+        List<VillagerTrades.ItemListing> listings = RUNTIME_WANDERING_TRADES.get(pool);
+        if (listings == null || index < 0 || index >= listings.size()) return false;
+        List<VillagerTrades.ItemListing> copy = new ArrayList<>(listings);
+        copy.remove(index);
+        RUNTIME_WANDERING_TRADES.put(pool, List.copyOf(copy));
+        return true;
+    }
+
+    /**
+     * 删除成功后从运行时缓存移除单条（村民职业版本）。
+     * @return 找到并移除返回 true；否则返回 false
+     */
+    public static boolean removeRuntimeVillagerTrade(String professionId, int level, int index) {
+        Map<Integer, List<VillagerTrades.ItemListing>> levels = RUNTIME_VILLAGER_TRADES.get(professionId);
+        if (levels == null) return false;
+        List<VillagerTrades.ItemListing> listings = levels.get(level);
+        if (listings == null || index < 0 || index >= listings.size()) return false;
+        Map<Integer, List<VillagerTrades.ItemListing>> copyLevels = new HashMap<>(levels);
+        List<VillagerTrades.ItemListing> copy = new ArrayList<>(listings);
+        copy.remove(index);
+        copyLevels.put(level, List.copyOf(copy));
+        RUNTIME_VILLAGER_TRADES.put(professionId, copyLevels);
+        return true;
+    }
+
     private static void cacheVillagerRuntimeTrades(String professionId,
                                                    Map<Integer, List<VillagerTrades.ItemListing>> trades) {
         Map<Integer, List<VillagerTrades.ItemListing>> copy = new HashMap<>();
@@ -97,30 +135,48 @@ public final class VisualCraftingTradeHandler {
                 : "";
         if (professionId.isEmpty()) return;
 
-        // 先缓存运行时原版/Mod 交易，再追加 GUI 自定义交易；避免 GUI 把自定义交易重复显示为运行时交易。
-        // 缓存只依赖 event.getTrades()，需在 server 检查之前完成，否则集成服务器尚未就绪时 RUNTIME 为空。
+        // 顺序（保证删除后索引稳定，不出现“删除交易后又恢复/覆盖错条目”）：
+        // 1) 先按原版事件原始索引应用 override（trade_overrides/<level>-<index>.json）；
+        // 2) 再缓存“override 后完整列表”（含已写 deleted 标记的条目），缓存索引 = 原版事件原始位置；
+        // 3) deleted 过滤只作用于注入列表，不左移缓存索引。
+        // 这样 GUI 重拉列表时被删条目按 deleted 标记跳过显示但索引不重排，
+        // 后续保存/删除仍按原始索引定位 override/deleted 文件，不会撤销相邻条目的删除标记。
+        // 缓存只依赖 event.getTrades()，需在 server 检查之前完成，否则集成服务器尚未就绪时 RUNTIME 为空；
+        // override/deleted 依赖存档目录，server 就绪后执行。
+        var server = ServerLifecycleHooks.getCurrentServer();
+        File root = server == null ? null : server.getWorldPath(LevelResource.ROOT).toFile();
+        if (root != null) {
+            applyVillagerOverrides(event.getTrades(), professionId, root);
+        }
         cacheVillagerRuntimeTrades(professionId, event.getTrades());
 
-        var server = ServerLifecycleHooks.getCurrentServer();
         if (server == null) return;
-        File root = server.getWorldPath(LevelResource.ROOT).toFile();
 
-        applyVillagerOverrides(event.getTrades(), professionId, root);
+        if (root != null) {
+            applyVillagerDeletedFilters(event.getTrades(), professionId, root);
+        }
         loadCustomTrades(event.getTrades(), professionId, root);
     }
 
     @SubscribeEvent
     public static void onWanderingTrades(WandererTradesEvent event) {
+        // 与 onVillagerTrades 同序：先按原始索引应用 override → 缓存完整列表 → 再过滤 deleted 注入。
+        var server = ServerLifecycleHooks.getCurrentServer();
+        File root = server == null ? null : server.getWorldPath(LevelResource.ROOT).toFile();
+        if (root != null) {
+            applyWanderingOverrides(event.getGenericTrades(), "generic", root);
+            applyWanderingOverrides(event.getRareTrades(), "rare", root);
+        }
         // 运行时缓存只依赖事件数据，需在 server 检查之前完成，否则集成服务器尚未就绪时 RUNTIME 为空。
         RUNTIME_WANDERING_TRADES.put("generic", List.copyOf(event.getGenericTrades()));
         RUNTIME_WANDERING_TRADES.put("rare", List.copyOf(event.getRareTrades()));
 
-        var server = ServerLifecycleHooks.getCurrentServer();
         if (server == null) return;
 
-        File root = server.getWorldPath(LevelResource.ROOT).toFile();
-        applyWanderingOverrides(event.getGenericTrades(), "generic", root);
-        applyWanderingOverrides(event.getRareTrades(), "rare", root);
+        if (root != null) {
+            applyWanderingDeletedFilters(event.getGenericTrades(), "generic", root);
+            applyWanderingDeletedFilters(event.getRareTrades(), "rare", root);
+        }
 
         // 将流浪商人作为一个独立编辑项接入 Mode 3：
         // 等级 1 对应普通交易池，等级 2 对应稀有交易池。
@@ -128,6 +184,185 @@ public final class VisualCraftingTradeHandler {
         customTrades.put(1, event.getGenericTrades());
         customTrades.put(2, event.getRareTrades());
         loadCustomTrades(customTrades, "minecraft:wandering_trader", root);
+    }
+
+    // ===== deleted 标记过滤（原版/Mod 运行时交易直接删除） =====
+    // 标记由服务端 handleDeleteTrade 在无 override 时写入：
+    //   world/visualcrafting/trade_deleted/villager/<profDir>/<level>-<index>.json
+    //   world/visualcrafting/trade_deleted/wandering/<pool>-<index>.json
+    // 标记文件内 id 按 profId|cost1|result[|cost2]（同家族重复项带自然数后缀）。
+
+    /** 仅加载文件名以 <levelOrPool>- 前缀开头的标记 ID。 */
+    private static Set<String> loadDeletedIdsByLevel(File deletedDir, String levelOrPool) {
+        Set<String> ids = new HashSet<>();
+        String prefix = levelOrPool + "-";
+        File[] files = deletedDir.listFiles((d, n) -> n.endsWith(".json") && n.startsWith(prefix));
+        if (files == null) return ids;
+        for (File f : files) {
+            try {
+                JsonObject json = JsonParser.parseString(
+                        Files.readString(f.toPath(), StandardCharsets.UTF_8)).getAsJsonObject();
+                String id = json.has("id") ? json.get("id").getAsString() : "";
+                if (!id.isEmpty()) ids.add(id);
+            } catch (Exception ignored) { }
+        }
+        return ids;
+    }
+
+    /** 基础 ID 命中判定：标记 ID 等于 base 或以 base|N 形式存在（共享 ID 整组过滤）。 */
+    private static boolean isDeletedId(Set<String> deletedIds, String base) {
+        if (deletedIds.contains(base)) return true;
+        for (String id : deletedIds) {
+            if (id.startsWith(base + "|")) return true;
+        }
+        return false;
+    }
+
+    /**
+     * 将运行时 ItemListing 转为三元组 JSON（与 ModMessages.merchantOfferToTradeJson 同源规则）：
+     * 用临时村民/流浪商人种子化调用 getOffer，取 cost1/cost2/result 的注册名。
+     * 生成失败返回 null（保持该交易不过滤，避免误删）。
+     */
+    private static JsonObject listingToTripleJson(VillagerTrades.ItemListing listing,
+                                                  String profId, int level) {
+        try {
+            var server = ServerLifecycleHooks.getCurrentServer();
+            if (server == null) return null;
+            MerchantOffer offer;
+            if ("minecraft:wandering_trader".equals(profId)) {
+                WanderingTrader trader = new WanderingTrader(EntityType.WANDERING_TRADER, server.overworld());
+                offer = listing.getOffer(trader, RandomSource.create());
+            } else {
+                Optional<VillagerProfession> profession = BuiltInRegistries.VILLAGER_PROFESSION
+                        .getOptional(ResourceLocation.parse(profId));
+                if (profession.isEmpty()) return null;
+                Villager villager = new Villager(EntityType.VILLAGER, server.overworld());
+                VillagerData data = villager.getVillagerData()
+                        .setProfession(profession.get())
+                        .setLevel(Math.clamp(level, 1, 5));
+                villager.setVillagerData(data);
+                offer = listing.getOffer(villager, RandomSource.create());
+            }
+            if (offer == null) return null;
+            JsonObject json = new JsonObject();
+            json.addProperty("cost1", BuiltInRegistries.ITEM.getKey(offer.getCostA().getItem()).toString());
+            if (!offer.getCostB().isEmpty()) {
+                json.addProperty("cost2", BuiltInRegistries.ITEM.getKey(offer.getCostB().getItem()).toString());
+            }
+            json.addProperty("result", BuiltInRegistries.ITEM.getKey(offer.getResult().getItem()).toString());
+            return json;
+        } catch (Exception e) {
+            LOGGER.warn("[VisualCrafting] Failed to build triple for deleted filter "
+                    + profId + " level " + level + ": " + e.getMessage());
+            return null;
+        }
+    }
+
+    /** 按现 ID 体系生成基础 ID：profId|cost1|result[|cost2]（与 ModMessages.generateTradeId 同规则）。 */
+    private static String deletedBaseId(String profId, JsonObject tripleJson) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(profId == null ? "?" : profId);
+        String buy = tripleJson.has("cost1") ? tripleJson.get("cost1").getAsString() : "";
+        String sell = tripleJson.has("result") ? tripleJson.get("result").getAsString() : "";
+        sb.append('|').append((buy == null || buy.isEmpty()) ? "?" : buy);
+        sb.append('|').append((sell == null || sell.isEmpty()) ? "?" : sell);
+        if (tripleJson.has("cost2")) {
+            String buy2 = tripleJson.get("cost2").getAsString();
+            if (buy2 != null && !buy2.isEmpty()) sb.append('|').append(buy2);
+        }
+        return sb.toString();
+    }
+
+    /** 村民：按职业目录加载 deleted 标记，过滤事件注入列表。 */
+    private static void applyVillagerDeletedFilters(
+            Map<Integer, List<VillagerTrades.ItemListing>> trades,
+            String professionId,
+            File worldRoot) {
+        File deletedRoot = new File(new File(worldRoot, "visualcrafting"), "trade_deleted/villager");
+        File dir = new File(deletedRoot, profileDirectoryId(professionId));
+        if (!dir.isDirectory() && professionId.startsWith("minecraft:")) {
+            dir = new File(deletedRoot, legacyProfessionId(professionId));
+        }
+        if (!dir.isDirectory()) return;
+        for (int level = 1; level <= 5; level++) {
+            List<VillagerTrades.ItemListing> listings = trades.get(level);
+            if (listings == null || listings.isEmpty()) continue;
+            Set<String> deletedIds = loadDeletedIdsByLevel(dir, String.valueOf(level));
+            if (deletedIds.isEmpty()) continue;
+            final int lvl = level;
+            listings.removeIf(listing -> {
+                JsonObject triple = listingToTripleJson(listing, professionId, lvl);
+                if (triple == null) return false;
+                return isDeletedId(deletedIds, deletedBaseId(professionId, triple));
+            });
+        }
+    }
+
+    /** 流浪商人：按 pool（generic/rare）加载 deleted 标记，过滤对应交易池。 */
+    private static void applyWanderingDeletedFilters(
+            List<VillagerTrades.ItemListing> listings,
+            String pool,
+            File worldRoot) {
+        if (listings == null || listings.isEmpty()) return;
+        File dir = new File(new File(worldRoot, "visualcrafting"), "trade_deleted/wandering");
+        if (!dir.isDirectory()) return;
+        Set<String> deletedIds = loadDeletedIdsByLevel(dir, pool);
+        if (deletedIds.isEmpty()) return;
+        listings.removeIf(listing -> {
+            JsonObject triple = listingToTripleJson(listing, "minecraft:wandering_trader",
+                    "rare".equals(pool) ? 2 : 1);
+            if (triple == null) return false;
+            return isDeletedId(deletedIds, deletedBaseId("minecraft:wandering_trader", triple));
+        });
+    }
+
+    /**
+     * 查询某条村民运行时交易是否已被删除（deleted 标记按 ID 匹配）。
+     * 供 GUI 列表组装复用：被删条目跳过显示、但索引保持原版事件原始位置，
+     * 保证删除后列表真实反映删除结果且后续保存/删除定位不左移。
+     * cost1/result 缺失时返回 false（不误过滤）。
+     */
+    public static boolean isVillagerRuntimeTradeDeleted(File worldRoot, String professionId,
+                                                       int level, String cost1, String cost2, String result) {
+        try {
+            if (worldRoot == null || cost1 == null || cost1.isEmpty()
+                    || result == null || result.isEmpty()) return false;
+            File deletedRoot = new File(new File(worldRoot, "visualcrafting"), "trade_deleted/villager");
+            File dir = new File(deletedRoot, profileDirectoryId(professionId));
+            if (!dir.isDirectory() && professionId.startsWith("minecraft:")) {
+                dir = new File(deletedRoot, legacyProfessionId(professionId));
+            }
+            if (!dir.isDirectory()) return false;
+            Set<String> deletedIds = loadDeletedIdsByLevel(dir, String.valueOf(level));
+            if (deletedIds.isEmpty()) return false;
+            JsonObject triple = new JsonObject();
+            triple.addProperty("cost1", cost1);
+            if (cost2 != null && !cost2.isEmpty()) triple.addProperty("cost2", cost2);
+            triple.addProperty("result", result);
+            return isDeletedId(deletedIds, deletedBaseId(professionId, triple));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** 流浪商人版本（pool: generic/rare），规则同村民。 */
+    public static boolean isWanderingRuntimeTradeDeleted(File worldRoot, String pool,
+                                                         String cost1, String cost2, String result) {
+        try {
+            if (worldRoot == null || cost1 == null || cost1.isEmpty()
+                    || result == null || result.isEmpty()) return false;
+            File dir = new File(new File(worldRoot, "visualcrafting"), "trade_deleted/wandering");
+            if (!dir.isDirectory()) return false;
+            Set<String> deletedIds = loadDeletedIdsByLevel(dir, pool);
+            if (deletedIds.isEmpty()) return false;
+            JsonObject triple = new JsonObject();
+            triple.addProperty("cost1", cost1);
+            if (cost2 != null && !cost2.isEmpty()) triple.addProperty("cost2", cost2);
+            triple.addProperty("result", result);
+            return isDeletedId(deletedIds, deletedBaseId("minecraft:wandering_trader", triple));
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private static void applyVillagerOverrides(
