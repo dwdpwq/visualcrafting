@@ -2283,37 +2283,45 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     }
 
     private void switchMode(int newMode) {
-        int oldMode = this.mode;
         int prevGridSize = this.getGridSize();
         int prevSlotCount = prevGridSize * prevGridSize;
         ItemStack[] itemStackArray = new ItemStack[prevSlotCount];
         for (int i = 0; i < prevSlotCount; ++i) {
-            itemStackArray[i] = (this.menu.slots.get(i)).getItem().copy();
+            itemStackArray[i] = this.menu.slots.get(i).getItem().copy();
         }
+        ItemStack outputStack = this.menu.slots.get(81).getItem().copy();
 
-        ItemStack itemStack = this.menu.slots.get(81).getItem().copy();
-        PacketDistributor.sendToServer(new ModMessages.ModeUpdatePacket(this.menu.blockPos, newMode), new CustomPacketPayload[0]);
-
-        // 任意标签页切换都回到 3x3；9x9 等 CRT 网格不会残留到下一标签页。
+        // 任意标签页切换都回到 3x3。先完成本地状态与槽位快照，再重建控件，
+        // 避免 rebuildWidgets() 在一个“旧模式 + 空槽/旧尺寸”的中间状态下读取数据。
         this.tier = 0;
         this.menu.setTier(0);
+        this.menu.setCurrentMode(newMode);
         this.menu.updateSlotPositions(0);
-        PacketDistributor.sendToServer(new ModMessages.TierUpdatePacket(this.menu.blockPos, 0), new CustomPacketPayload[0]);
         for (int i = 9; i < 81; ++i) {
             this.menu.slots.get(i).set(ItemStack.EMPTY);
         }
 
-        this.markedContainer = ItemStack.EMPTY;
-        this.mode = newMode;
-        this.loadOffsets();
-        this.updateGuiSize();
-        this.rebuildWidgets();
-        int newSlotCount = this.getGridSize() * this.getGridSize();
+        int newSlotCount = 9;
         for (int i = 0; i < prevSlotCount && i < newSlotCount; ++i) {
             this.menu.slots.get(i).set(itemStackArray[i]);
         }
+        this.menu.slots.get(81).set(outputStack);
 
-        this.menu.slots.get(81).set(itemStack);
+        this.markedContainer = ItemStack.EMPTY;
+        this.mode = newMode;
+        this.scrollOffset = 0;
+        this.loadOffsets();
+        this.updateGuiSize();
+        this.layoutCurrentModeSlots();
+        this.rebuildWidgets();
+
+        // 只发送状态包；tier 已经是 0 时不再额外发送一次 tier 更新，
+        // 减少服务端同步造成的第二次容器/GUI 状态变化。
+        PacketDistributor.sendToServer(new ModMessages.ModeUpdatePacket(this.menu.blockPos, newMode), new CustomPacketPayload[0]);
+        if (this.tier != 0) {
+            PacketDistributor.sendToServer(new ModMessages.TierUpdatePacket(this.menu.blockPos, 0), new CustomPacketPayload[0]);
+        }
+
         if (newMode == 2) {
             this.updateMode2ButtonStates();
         }
