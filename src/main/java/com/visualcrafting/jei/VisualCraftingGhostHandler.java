@@ -31,7 +31,7 @@ public class VisualCraftingGhostHandler implements IGhostIngredientHandler<Visua
             LOGGER.info("[VC-Ghost] targets requested: mode={}, ingredientClass={}",
                     screen.getMode(), raw == null ? "null" : raw.getClass().getName());
         }
-        // 仅在化学灌注页提供化学槽作为拖放目标
+        // 化学灌注页：保留原有化学 ghost 目标。
         if (screen.getMode() == 1) {
             targets.add(new Target<I>() {
                 @Override
@@ -54,14 +54,40 @@ public class VisualCraftingGhostHandler implements IGhostIngredientHandler<Visua
                         menu.chemSlotData = slotData;
                     }
                     CompoundTag tag = MekanismIntegration.convertChemicalToTag(ingredient);
-                    LOGGER.info("[VC-Ghost] tag={}", tag);
                     ItemStack ghostItem = MekanismIntegration.createChemicalTagItem(tag);
-
-                    // 化学拖放仅标记化学槽：不得写入合成输入槽（ghostItems[0]）
                     screen.setSelectedChemical(ghostItem);
                 }
             });
         }
+
+        // Crafting page: accept ordinary JEI item ingredients into the actual
+        // current grid. This is deliberately ingredient-level, so custom recipe
+        // types (including Create) do not need hard-coded recipe classes merely
+        // to populate the editor. Full recipe transfer remains delegated to JEI.
+        if (screen.getMode() == 0) {
+            final int gridSize = screen.getGridSize();
+            for (int row = 0; row < gridSize; row++) {
+                for (int col = 0; col < gridSize; col++) {
+                    final int slotIndex = row * gridSize + col;
+                    targets.add(new Target<I>() {
+                        @Override
+                        public Rect2i getArea() {
+                            return new Rect2i(screen.slotAbsX(slotIndex), screen.slotAbsY(slotIndex), 18, 18);
+                        }
+
+                        @Override
+                        public void accept(I ingredient) {
+                            if (ingredient instanceof ItemStack stack && !stack.isEmpty()) {
+                                VisualCraftingMenu menu = (VisualCraftingMenu) screen.getMenu();
+                                menu.craftSlots.setItem(slotIndex, stack.copy());
+                                screen.setGhostItem(slotIndex, stack.copy());
+                            }
+                        }
+                    });
+                }
+            }
+        }
+
         return targets;
     }
 
