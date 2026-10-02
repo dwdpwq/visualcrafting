@@ -149,12 +149,21 @@ public class VisualCraftingBlockEntity extends BlockEntity {
         return tier;
     }
 
+    /**
+     * Marks persistent state as dirty without broadcasting the full BlockEntity NBT.
+     *
+     * <p>Recipe mutations are followed by the explicit SyncRecipes/SyncInfusingRecipes
+     * packets in {@code ModMessages}. Broadcasting the complete BlockEntity update here
+     * duplicated that payload and caused the full recipe lists to be sent through
+     * chunk tracking on every mutation.</p>
+     *
+     * <p>The normal BlockEntity update tag remains available for initial chunk/menu
+     * synchronization and world persistence; this method only removes redundant
+     * mutation-time broadcasts.</p>
+     */
     public void setTier(int tier) {
         this.tier = clamp(tier, MIN_TIER, MAX_TIER);
         setChanged();
-        if (level != null) {
-            level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
-        }
     }
 
     public int getFormat() {
@@ -164,9 +173,6 @@ public class VisualCraftingBlockEntity extends BlockEntity {
     public void setFormat(int format) {
         this.format = clamp(format, MIN_FORMAT, MAX_FORMAT);
         setChanged();
-        if (level != null) {
-            level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
-        }
     }
 
     public int getMode() {
@@ -176,9 +182,6 @@ public class VisualCraftingBlockEntity extends BlockEntity {
     public void setMode(int mode) {
         this.mode = normalizeMode(mode);
         setChanged();
-        if (level != null) {
-            level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
-        }
     }
 
     public List<InfusingRecipe> getInfusingRecipes() {
@@ -194,9 +197,6 @@ public class VisualCraftingBlockEntity extends BlockEntity {
         history.add("+ " + recipe.result.getHoverName().getString());
         trimHistory();
         setChanged();
-        if (level != null) {
-            level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
-        }
     }
 
     public void removeRecipe(int index) {
@@ -220,9 +220,6 @@ public class VisualCraftingBlockEntity extends BlockEntity {
         history.add("+ [Infuse] " + recipe.output.getHoverName().getString());
         trimHistory();
         setChanged();
-        if (level != null) {
-            level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
-        }
     }
 
     public void removeInfusingRecipe(int index) {
