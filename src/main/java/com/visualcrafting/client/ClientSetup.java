@@ -1,10 +1,7 @@
 package com.visualcrafting.client;
 
 import com.visualcrafting.VisualCraftingTable;
-import com.visualcrafting.screen.VisualCraftingMenu;
 import com.visualcrafting.screen.VisualCraftingScreen;
-import net.minecraft.network.chat.Component;
-import net.minecraft.world.entity.player.Inventory;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
