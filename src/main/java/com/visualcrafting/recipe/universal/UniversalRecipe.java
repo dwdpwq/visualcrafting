@@ -26,8 +26,27 @@ public final class UniversalRecipe {
 
     public ResourceLocation id() { return id; }
     public ResourceLocation sourceResource() { return sourceResource; }
-    public JsonObject rawJson() { return rawJson; }
+    public JsonObject rawJson() { return rawJson.deepCopy(); }
     public UniversalRecipeNode root() { return root; }
+
+    /** Current edited representation. Hidden nodes remain present. */
+    public JsonObject toJson() {
+        return root.toJson(true).getAsJsonObject();
+    }
+
+    /** Representation suitable for a UI/export that intentionally hides fields. */
+    public JsonObject toVisibleJson() {
+        return root.toJson(false).getAsJsonObject();
+    }
+
+    /** Commit the edited tree back into this recipe's retained raw document. */
+    public void applyTree() {
+        JsonObject edited = toJson();
+        rawJson.entrySet().clear();
+        for (var entry : edited.entrySet()) {
+            rawJson.add(entry.getKey(), entry.getValue());
+        }
+    }
 
     public String typeId() {
         JsonElement type = rawJson.get("type");
