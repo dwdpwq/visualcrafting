@@ -2283,6 +2283,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     }
 
     private void switchMode(int newMode) {
+        int previousTier = this.tier;
         int prevGridSize = this.getGridSize();
         int prevSlotCount = prevGridSize * prevGridSize;
         ItemStack[] itemStackArray = new ItemStack[prevSlotCount];
@@ -2318,7 +2319,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         // 只发送状态包；tier 已经是 0 时不再额外发送一次 tier 更新，
         // 减少服务端同步造成的第二次容器/GUI 状态变化。
         PacketDistributor.sendToServer(new ModMessages.ModeUpdatePacket(this.menu.blockPos, newMode), new CustomPacketPayload[0]);
-        if (this.tier != 0) {
+        if (previousTier != 0) {
             PacketDistributor.sendToServer(new ModMessages.TierUpdatePacket(this.menu.blockPos, 0), new CustomPacketPayload[0]);
         }
 
