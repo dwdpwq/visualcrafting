@@ -65,7 +65,7 @@ public class VisualCraftingGhostHandler implements IGhostIngredientHandler<Visua
         // types (including Create) do not need hard-coded recipe classes merely
         // to populate the editor. Full recipe transfer remains delegated to JEI.
         if (screen.getMode() == 0) {
-            final int gridSize = screen.getGridSize();
+            final int gridSize = screen.getMenu().getGridSize();
             for (int row = 0; row < gridSize; row++) {
                 for (int col = 0; col < gridSize; col++) {
                     final int slotIndex = row * gridSize + col;
