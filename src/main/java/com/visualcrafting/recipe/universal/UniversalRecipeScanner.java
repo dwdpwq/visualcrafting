@@ -44,13 +44,11 @@ public final class UniversalRecipeScanner {
                     fileId.getNamespace(), recipePath);
 
             try (Reader reader = entry.getValue().openAsReader()) {
-                if (!JsonParser.parseReader(reader).isJsonObject()) {
+                var parsed = JsonParser.parseReader(reader);
+                if (!parsed.isJsonObject()) {
                     continue;
                 }
-                JsonObject json = JsonParser.parseReader(
-                        new java.io.StringReader(
-                                entry.getValue().openAsReader().readAllBytes().toString()))
-                        .getAsJsonObject();
+                JsonObject json = parsed.getAsJsonObject();
                 result.put(recipeId, new UniversalRecipe(recipeId, fileId, json));
             } catch (Exception ignored) {
                 // A malformed/non-object recipe should not prevent other mods'
