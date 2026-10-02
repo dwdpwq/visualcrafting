@@ -24,7 +24,7 @@ public final class UniversalRecipeNode {
 
     private final String key;
     private final Kind kind;
-    private final String scalarValue;
+    private String scalarValue;
     private final List<UniversalRecipeNode> children;
     private boolean visible = true;
     private boolean editable = true;
@@ -77,5 +77,68 @@ public final class UniversalRecipeNode {
 
     public boolean isContainer() {
         return kind == Kind.OBJECT || kind == Kind.ARRAY;
+    }
+
+    /** Update a scalar value without changing its inferred JSON kind. */
+    public void setScalarValue(String value) {
+        if (kind == Kind.OBJECT || kind == Kind.ARRAY) {
+            throw new IllegalStateException("Container nodes do not have scalar values");
+        }
+        this.scalarValue = value;
+    }
+
+    public void addChild(UniversalRecipeNode child) {
+        if (!isContainer()) {
+            throw new IllegalStateException("Only object/array nodes can have children");
+        }
+        children.add(child);
+    }
+
+    public UniversalRecipeNode removeChild(int index) {
+        if (!isContainer()) {
+            throw new IllegalStateException("Only object/array nodes can have children");
+        }
+        return children.remove(index);
+    }
+
+    /**
+     * Serializes the edited tree. Hidden nodes are retained by default so
+     * "hide" is a presentation setting, never silent data loss.
+     */
+    public JsonElement toJson() {
+        return toJson(true);
+    }
+
+    public JsonElement toJson(boolean includeHidden) {
+        return switch (kind) {
+            case NULL -> com.google.gson.JsonNull.INSTANCE;
+            case STRING -> new JsonPrimitive(scalarValue == null ? "" : scalarValue);
+            case NUMBER -> {
+                try {
+                    yield new JsonPrimitive(new java.math.BigDecimal(scalarValue));
+                } catch (NumberFormatException e) {
+                    yield new JsonPrimitive(scalarValue);
+                }
+            }
+            case BOOLEAN -> new JsonPrimitive(Boolean.parseBoolean(scalarValue));
+            case OBJECT -> {
+                JsonObject object = new JsonObject();
+                for (UniversalRecipeNode child : children) {
+                    if (includeHidden || child.visible()) {
+                        object.add(child.key(), child.toJson(includeHidden));
+                    }
+                }
+                yield object;
+            }
+            case ARRAY -> {
+                JsonArray array = new JsonArray();
+                for (UniversalRecipeNode child : children) {
+                    if (includeHidden || child.visible()) {
+                        array.add(child.toJson(includeHidden));
+                    }
+                }
+                yield array;
+            }
+        };
     }
 }
