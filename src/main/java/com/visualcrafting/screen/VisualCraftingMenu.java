@@ -238,26 +238,97 @@ public class VisualCraftingMenu extends AbstractContainerMenu {
 
     // ======================== Container methods ========================
 
+    /**
+     * Mode-aware shift-click routing.
+     *
+     * The menu owns one shared 81-slot backing container, while the screen
+     * exposes different semantic slots per tab. The old implementation always
+     * targeted [0, 81), so a shift-click in e.g. Mode 6 could populate hidden
+     * crafting slots and later leak into another tab. Keep the routing here,
+     * next to the authoritative slot container, instead of relying on screen
+     * visibility.
+     */
     @Override
     public ItemStack quickMoveStack(Player player, int index) {
-        ItemStack result = ItemStack.EMPTY;
-        Slot slot = this.slots.get(index);
-        if (slot != null && slot.hasItem()) {
-            ItemStack stack = slot.getItem();
-            result = stack.copy();
-            if (index < PLAYER_START) {
-                if (!this.moveItemStackTo(stack, PLAYER_START, PLAYER_END, true)) {
-                    return ItemStack.EMPTY;
-                }
-            } else {
-                if (!this.moveItemStackTo(stack, 0, MAX_GRID, false)) {
-                    return ItemStack.EMPTY;
+        if (index < 0 || index >= this.slots.size()) {
+            return ItemStack.EMPTY;
+        }
+
+        Slot source = this.slots.get(index);
+        if (source == null || !source.hasItem()) {
+            return ItemStack.EMPTY;
+        }
+
+        // Only slots exposed by the current mode may participate in quick-move.
+        // Inventory slots are always valid sources; mode-specific container
+        // slots are explicitly enumerated to prevent hidden-slot leakage.
+        int[] targets = quickMoveTargets();
+        if (index >= PLAYER_START) {
+            if (targets.length == 0) {
+                return ItemStack.EMPTY;
+            }
+            ItemStack stack = source.getItem();
+            ItemStack result = stack.copy();
+            for (int target : targets) {
+                if (target < 0 || target >= MAX_GRID + 1) continue;
+                Slot destination = this.slots.get(target);
+                if (destination == null || !destination.mayPlace(stack)) continue;
+                if (this.moveItemStackTo(stack, target, target + 1, false)) {
+                    if (stack.isEmpty()) break;
                 }
             }
-            if (stack.isEmpty()) slot.setByPlayer(ItemStack.EMPTY);
-            else slot.setChanged();
+            if (stack.isEmpty()) source.setByPlayer(ItemStack.EMPTY);
+            else source.setChanged();
+            return result;
         }
+
+        // Container -> inventory is only allowed from a slot that belongs to
+        // the current mode. This also prevents stale hidden stacks from being
+        // shift-clicked after a tab switch.
+        if (!isQuickMoveSource(index)) {
+            return ItemStack.EMPTY;
+        }
+
+        ItemStack stack = source.getItem();
+        ItemStack result = stack.copy();
+        if (!this.moveItemStackTo(stack, PLAYER_START, PLAYER_END, true)) {
+            return ItemStack.EMPTY;
+        }
+        if (stack.isEmpty()) source.setByPlayer(ItemStack.EMPTY);
+        else source.setChanged();
         return result;
+    }
+
+    private int[] quickMoveTargets() {
+        return switch (this.currentMode) {
+            case 0 -> {
+                int count = getGridSize() * getGridSize();
+                int[] result = new int[count];
+                for (int i = 0; i < count; i++) result[i] = i;
+                yield result;
+            }
+            case 1 -> new int[]{0};
+            case 2 -> new int[]{0, 1};
+            case 3 -> new int[]{0, 1, 2, 80, 81};
+            case 5 -> new int[]{0, 1};
+            case 6 -> new int[]{0};
+            // Mode 7 intentionally has no container input slot.
+            case 8 -> new int[]{81};
+            default -> new int[0];
+        };
+    }
+
+    private boolean isQuickMoveSource(int index) {
+        return switch (this.currentMode) {
+            case 0 -> index >= 0 && index < getGridSize() * getGridSize();
+            case 1 -> index == 0 || index == 81;
+            case 2 -> index == 0 || index == 1;
+            case 3 -> index == 0 || index == 1 || index == 2 || index == 80 || index == 81;
+            case 5 -> index == 0 || index == 1;
+            case 6 -> index == 0;
+            case 8 -> index == 81;
+            default -> false;
+        };
     }
 
     @Override
