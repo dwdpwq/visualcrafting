@@ -205,9 +205,6 @@ public class VisualCraftingBlockEntity extends BlockEntity {
             trimHistory();
             recipes.remove(index);
             setChanged();
-            if (level != null) {
-                level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
-            }
         }
     }
 
@@ -228,9 +225,6 @@ public class VisualCraftingBlockEntity extends BlockEntity {
             trimHistory();
             infusingRecipes.remove(index);
             setChanged();
-            if (level != null) {
-                level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
-            }
         }
     }
 
