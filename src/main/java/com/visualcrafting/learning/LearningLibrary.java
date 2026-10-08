@@ -93,6 +93,10 @@ public final class LearningLibrary {
         /**
          * 按 recipeType / type 查询机器能力，供后续动态编辑器使用。
          */
+        /**
+         * 返回与 Recipe Type 匹配的全部编辑能力。支持 VAS 生成的 recipeTypes 数组，
+         * 同时兼容旧版只保存 type / recipeType 的学习数据。
+         */
         public List<JsonObject> capabilitiesFor(String recipeType) {
             if (recipeType == null || recipeType.isBlank()) return Collections.emptyList();
             List<JsonObject> result = new ArrayList<>();
@@ -104,10 +108,45 @@ public final class LearningLibrary {
             return Collections.unmodifiableList(result);
         }
 
+        public JsonObject bestCapabilityFor(String recipeType) {
+            List<JsonObject> matches = capabilitiesFor(recipeType);
+            if (matches.isEmpty()) return null;
+            matches.sort((a,b) -> Integer.compare(
+                    b.has("sampleCount") ? b.get("sampleCount").getAsInt() : 0,
+                    a.has("sampleCount") ? a.get("sampleCount").getAsInt() : 0));
+            return matches.get(0);
+        }
+
+        public List<JsonObject> schemasFor(String recipeType) {
+            List<JsonObject> result = new ArrayList<>();
+            for (JsonElement e : schemas) {
+                if (!e.isJsonObject()) continue;
+                JsonObject o = e.getAsJsonObject();
+                if (matchesType(o, recipeType)) result.add(o.deepCopy());
+            }
+            return Collections.unmodifiableList(result);
+        }
+
+        public JsonObject machineFor(String recipeType) {
+            for (JsonElement e : machines) {
+                if (!e.isJsonObject()) continue;
+                JsonObject o = e.getAsJsonObject();
+                JsonElement t = o.get("recipeType");
+                if (t != null && recipeType.equals(t.getAsString())) return o.deepCopy();
+            }
+            return null;
+        }
+
         private static boolean matchesType(JsonObject o, String recipeType) {
+            JsonElement types = o.get("recipeTypes");
+            if (types != null && types.isJsonArray()) {
+                for (JsonElement type : types.getAsJsonArray()) {
+                    if (type.isJsonPrimitive() && recipeType.equals(type.getAsString())) return true;
+                }
+            }
             for (String key : new String[]{"recipeType", "type", "machineIdentity"}) {
                 JsonElement v = o.get(key);
-                if (v != null && !v.isJsonNull() && recipeType.equals(v.getAsString())) return true;
+                if (v != null && !v.isJsonNull() && v.isJsonPrimitive() && recipeType.equals(v.getAsString())) return true;
             }
             return false;
         }
