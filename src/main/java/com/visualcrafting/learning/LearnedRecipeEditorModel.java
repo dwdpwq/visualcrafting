@@ -5,6 +5,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.google.gson.JsonPrimitive;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -53,7 +54,7 @@ public final class LearnedRecipeEditorModel {
             } catch (IllegalArgumentException e) {
                 role = Role.METADATA;
             }
-            boolean array = path.endsWith("[]") || "array".equals(string(field, "observedTypes"));
+            boolean array = path.endsWith("[]");
             String observedType = firstObservedType(field);
             result.add(new FieldBinding(
                     path,
