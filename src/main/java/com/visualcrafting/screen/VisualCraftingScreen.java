@@ -2403,7 +2403,8 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         } else if (this.mode == 6) {
             this.layoutMode6Slots();
         } else if (this.mode == 7) {
-            this.layoutMode7Slots();
+            if (this.mode7LearnedOpen) this.layoutLearnedRecipeSlots();
+            else this.layoutMode7Slots();
         } else if (this.mode == 8) {
             this.layoutMode8Slots();
         } else {
@@ -2498,6 +2499,21 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     /**
      * Mode7 属性：全部合成槽隐藏（物品经槽位交互另有用途时由 init 覆盖）。
      */
+    private void layoutLearnedRecipeSlots() {
+        int grid = Math.min(this.getGridSize(), 9);
+        boolean hasCatalyst = !LearnedRecipeEditorModel.load(this.mode7LearnedType)
+                .fields(LearnedRecipeEditorModel.Role.CATALYST).isEmpty();
+        int inputCount = hasCatalyst ? Math.min(80, grid * grid) : grid * grid;
+        for (int i = 0; i < 81; i++) this.hideSlot(i);
+        for (int i = 0; i < inputCount; i++) {
+            int col = i % grid;
+            int row = i / grid;
+            this.setSlotPosition(i, 8 + col * 18, 35 + row * 18);
+        }
+        if (hasCatalyst) this.setSlotPosition(80, 148, 35);
+        this.setSlotPosition(81, 148, 71);
+    }
+
     private void layoutMode7Slots() {
         this.hideCraftingSlotsAndOutput();
     }
@@ -4417,6 +4433,10 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         }).pos(this.leftPos + 8, this.topPos + 12).size(82, 16).build();
         this.mode7BtnLearnedGenerate = Button.builder(Component.literal("生成学习配方"), this::onMode7LearnedGenerate)
                 .pos(this.leftPos + 8, this.topPos + 31).size(82, 16).build();
+        this.mode7RegIdEdit = new EditBox(this.font, this.leftPos + 100, this.topPos + 33, 150, 16, Component.literal("Recipe ID"));
+        this.mode7RegIdEdit.setMaxLength(64);
+        this.mode7RegIdEdit.setFilter(element -> element.matches("[a-zA-Z0-9_.\\-]*"));
+        this.addRenderableWidget(this.mode7RegIdEdit);
         this.funcButtons.add(this.addRenderableWidget(this.mode7BtnLearned));
         this.funcButtons.add(this.addRenderableWidget(this.mode7BtnLearnedGenerate));
     }
