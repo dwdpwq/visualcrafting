@@ -182,10 +182,16 @@ public final class LearnedRecipeEditorModel {
 
     private static String firstObservedType(JsonObject field) {
         JsonElement types = field.get("observedTypes");
-        if (types != null && types.isJsonArray() && !types.getAsJsonArray().isEmpty()) {
-            return types.getAsJsonArray().get(0).getAsString();
+        if (types == null || !types.isJsonArray()) return "";
+        // 数组字段同时会记录 array 本身和元素类型；编辑物品时优先使用元素类型。
+        String fallback = "";
+        for (JsonElement e : types.getAsJsonArray()) {
+            if (!e.isJsonPrimitive()) continue;
+            String type = e.getAsString();
+            if ("object".equals(type) || "string".equals(type)) return type;
+            if (!"array".equals(type) && fallback.isBlank()) fallback = type;
         }
-        return "";
+        return fallback;
     }
 
     private static String string(JsonObject object, String key) {
