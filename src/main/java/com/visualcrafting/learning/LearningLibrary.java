@@ -90,6 +90,48 @@ public final class LearningLibrary {
             return machines.size();
         }
 
+        /** 返回学习库中所有已知 Recipe Type，供通用编辑器选择。 */
+        public List<String> recipeTypes() {
+            java.util.TreeSet<String> types = new java.util.TreeSet<>();
+            for (JsonElement e : capabilities) {
+                if (!e.isJsonObject()) continue;
+                JsonObject o = e.getAsJsonObject();
+                addTypeValues(types, o.get("recipeTypes"));
+                addTypeValues(types, o.get("recipeType"));
+                addTypeValues(types, o.get("type"));
+                addTypeValues(types, o.get("machineIdentity"));
+            }
+            for (JsonElement e : samples) {
+                if (!e.isJsonObject()) continue;
+                addTypeValues(types, e.getAsJsonObject().get("type"));
+            }
+            return Collections.unmodifiableList(new ArrayList<>(types));
+        }
+
+        /** 返回某个 Recipe Type 的代表学习样本中的 recipeJson。 */
+        public JsonObject representativeRecipe(String recipeType) {
+            if (recipeType == null || recipeType.isBlank()) return null;
+            for (JsonElement e : samples) {
+                if (!e.isJsonObject()) continue;
+                JsonObject sample = e.getAsJsonObject();
+                JsonElement type = sample.get("type");
+                if (type == null || !type.isJsonPrimitive() || !recipeType.equals(type.getAsString())) continue;
+                JsonElement recipe = sample.get("recipeJson");
+                if (recipe != null && recipe.isJsonObject()) return recipe.getAsJsonObject().deepCopy();
+            }
+            return null;
+        }
+
+        private static void addTypeValues(java.util.Set<String> out, JsonElement value) {
+            if (value == null || value.isJsonNull()) return;
+            if (value.isJsonArray()) {
+                for (JsonElement e : value.getAsJsonArray()) addTypeValues(out, e);
+            } else if (value.isJsonPrimitive()) {
+                String s = value.getAsString();
+                if (!s.isBlank()) out.add(s);
+            }
+        }
+
         /**
          * 按 recipeType / type 查询机器能力，供后续动态编辑器使用。
          */
