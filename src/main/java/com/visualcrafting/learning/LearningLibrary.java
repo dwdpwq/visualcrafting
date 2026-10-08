@@ -137,6 +137,32 @@ public final class LearningLibrary {
             return null;
         }
 
+        /** 返回学习库为该 Recipe Type 记录的字段定义。 */
+        public List<JsonObject> fieldsFor(String recipeType) {
+            JsonObject capability = bestCapabilityFor(recipeType);
+            if (capability == null) return Collections.emptyList();
+            JsonElement fields = capability.get("fields");
+            if (fields == null || !fields.isJsonArray()) return Collections.emptyList();
+            List<JsonObject> result = new ArrayList<>();
+            for (JsonElement e : fields.getAsJsonArray()) {
+                if (e.isJsonObject()) result.add(e.getAsJsonObject().deepCopy());
+            }
+            return Collections.unmodifiableList(result);
+        }
+
+        /** 按字段路径读取学习到的编辑角色，例如 INPUT / CATALYST / OUTPUT。 */
+        public String roleFor(String recipeType, String path) {
+            if (path == null) return "";
+            for (JsonObject field : fieldsFor(recipeType)) {
+                JsonElement p = field.get("path");
+                if (p != null && path.equals(p.getAsString())) {
+                    JsonElement role = field.get("role");
+                    return role != null ? role.getAsString() : "";
+                }
+            }
+            return "";
+        }
+
         private static boolean matchesType(JsonObject o, String recipeType) {
             JsonElement types = o.get("recipeTypes");
             if (types != null && types.isJsonArray()) {
