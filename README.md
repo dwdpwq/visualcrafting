@@ -92,3 +92,10 @@ Minecraft	必需	1.21.1 - 1.22
 KubeJS	必需	2101+
 AE2	可选	19.2+
 Mekanism	可选	—
+
+
+## 九、离线配方编辑能力学习库
+
+VisualCrafting 支持由 VAS.exe 导入的离线编辑能力库。学习资源位于 JAR 内的 `data/visualcrafting/learning/`，包含编辑能力、Schema、代表样本和机器类型索引。
+
+这些 JSON **不是 Minecraft Recipe**，不会放入 `data/<namespace>/recipe/`，因此不会被 RecipeManager 当作正式配方加载。VisualCrafting 启动 GUI 时会加载该能力库；后续动态配方编辑器可以依据 Recipe Type / Schema 查询对应编辑能力，而不需要把某个具体物品或配方硬编码进模组。
