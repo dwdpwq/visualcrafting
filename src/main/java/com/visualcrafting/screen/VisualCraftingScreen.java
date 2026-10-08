@@ -367,6 +367,11 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     Button mode7BtnGenerate;
     Button mode7BtnConfig;
     Button mode7BtnTexture;
+    Button mode7BtnLearned;
+    Button mode7BtnLearnedGenerate;
+    DropdownWidget mode7LearnedTypeDropdown;
+    boolean mode7LearnedOpen = false;
+    String mode7LearnedType = "";
     String mode7TexturePath = null;
     // ===================== Mode 8: 物品增强标签页（属性/附魔/耐久 + 自动类型检测 + 滚动） =====================
     static final String[][] MODE8_ATTRIBUTES = new String[][]{
@@ -4319,6 +4324,10 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     private static final String MODE7_SCRIPT_FOOTER = "});\n";
 
     private void initMode7Widgets() {
+        if (this.mode7LearnedOpen) {
+            this.initMode7LearnedWidgets();
+            return;
+        }
         int slotIdx;
         for (slotIdx = 0; slotIdx <= 81; ++slotIdx) {
             VisualCraftingScreen.setSlotX(this.menu.slots.get(slotIdx), -2000);
@@ -4337,9 +4346,12 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         this.mode7BtnGenerate = Button.builder(Component.translatable("gui.visualcrafting.mode7.generate"), this::onMode7GenerateScript).pos(this.leftPos + 8, this.topPos + 12).size(this.autoButtonWidth(Component.translatable("gui.visualcrafting.mode7.generate")), BUTTON_HEIGHT).build();
         this.mode7BtnConfig = Button.builder(Component.translatable("gui.visualcrafting.config"), this::onMode7Config).pos(this.leftPos + 8, this.topPos + 31).size(this.autoButtonWidth(Component.translatable("gui.visualcrafting.config")), BUTTON_HEIGHT).build();
         this.mode7BtnTexture = Button.builder(Component.translatable("gui.visualcrafting.mode7.choose_texture"), this::onMode7ChooseTexture).pos(this.leftPos + 8, this.topPos + 50).size(this.autoButtonWidth(Component.translatable("gui.visualcrafting.mode7.choose_texture")), BUTTON_HEIGHT).build();
+        this.mode7BtnLearned = Button.builder(Component.literal("学习配方"), b -> this.openMode7LearnedEditor())
+                .pos(this.leftPos + 8, this.topPos + 69).size(82, BUTTON_HEIGHT).build();
         this.funcButtons.add(this.addRenderableWidget(this.mode7BtnGenerate));
         this.funcButtons.add(this.addRenderableWidget(this.mode7BtnConfig));
         this.funcButtons.add(this.addRenderableWidget(this.mode7BtnTexture));
+        this.funcButtons.add(this.addRenderableWidget(this.mode7BtnLearned));
         int controlX = this.leftPos + 100;
         this.mode7TypeDropdown = new DropdownWidget(this, controlX, this.topPos + 13, 108);
         this.mode7TypeDropdown.setOptions(this.mode7TypeLabels(), 0);
@@ -4356,6 +4368,132 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         this.mode7RegIdEdit.setMaxLength(64);
         this.mode7RegIdEdit.setFilter(element -> element.matches("[a-zA-Z0-9_.\\-]*"));
         this.addRenderableWidget(this.mode7RegIdEdit);
+    }
+
+    private void initMode7LearnedWidgets() {
+        for (int i = 0; i < this.menu.slots.size(); ++i) {
+            VisualCraftingScreen.setSlotX(this.menu.slots.get(i), -2000);
+            VisualCraftingScreen.setSlotY(this.menu.slots.get(i), -2000);
+        }
+
+        List<String> types = LearningLibrary.get().recipeTypes();
+        if (!types.isEmpty()) {
+            if (this.mode7LearnedType.isBlank() || !types.contains(this.mode7LearnedType)) {
+                this.mode7LearnedType = types.get(0);
+            }
+        }
+
+        int grid = Math.min(this.getGridSize(), 9);
+        for (int i = 0; i < grid * grid && i < 81; i++) {
+            int col = i % grid;
+            int row = i / grid;
+            VisualCraftingScreen.setSlotX(this.menu.slots.get(i), 8 + col * 18);
+            VisualCraftingScreen.setSlotY(this.menu.slots.get(i), 35 + row * 18);
+        }
+        // 学习库声明存在 CATALYST 时，保留最右下角槽位作为明确的催化剂槽。
+        LearnedRecipeEditorModel model = LearnedRecipeEditorModel.load(this.mode7LearnedType);
+        if (!model.fields(LearnedRecipeEditorModel.Role.CATALYST).isEmpty()) {
+            VisualCraftingScreen.setSlotX(this.menu.slots.get(80), 148);
+            VisualCraftingScreen.setSlotY(this.menu.slots.get(80), 35);
+        }
+        VisualCraftingScreen.setSlotX(this.menu.slots.get(81), 148);
+        VisualCraftingScreen.setSlotY(this.menu.slots.get(81), 71);
+
+        int x = this.leftPos + 100;
+        this.mode7LearnedTypeDropdown = new DropdownWidget(this, x, this.topPos + 13, 150);
+        this.mode7LearnedTypeDropdown.setOptions(types.isEmpty() ? List.of("（未导入学习库）") : types,
+                Math.max(0, types.indexOf(this.mode7LearnedType)));
+        this.mode7LearnedTypeDropdown.setOnSelect(index -> {
+            if (index >= 0 && index < types.size()) {
+                this.mode7LearnedType = types.get(index);
+                this.rebuildWidgets();
+            }
+        });
+        this.addRenderableWidget(this.mode7LearnedTypeDropdown);
+
+        this.mode7BtnLearned = Button.builder(Component.literal("返回物品创建"), b -> {
+            this.mode7LearnedOpen = false;
+            this.rebuildWidgets();
+        }).pos(this.leftPos + 8, this.topPos + 12).size(82, 16).build();
+        this.mode7BtnLearnedGenerate = Button.builder(Component.literal("生成学习配方"), this::onMode7LearnedGenerate)
+                .pos(this.leftPos + 8, this.topPos + 31).size(82, 16).build();
+        this.funcButtons.add(this.addRenderableWidget(this.mode7BtnLearned));
+        this.funcButtons.add(this.addRenderableWidget(this.mode7BtnLearnedGenerate));
+    }
+
+    private void openMode7LearnedEditor() {
+        this.mode7LearnedOpen = true;
+        this.mode7LearnedType = "";
+        this.rebuildWidgets();
+    }
+
+    private void onMode7LearnedGenerate(Button button) {
+        if (this.mode7LearnedType == null || this.mode7LearnedType.isBlank()) {
+            this.showStatus(Component.literal("学习库中没有可编辑的 Recipe Type"));
+            return;
+        }
+        LearnedRecipeEditorModel model = LearnedRecipeEditorModel.load(this.mode7LearnedType);
+        JsonObject source = LearningLibrary.get().representativeRecipe(this.mode7LearnedType);
+        if (source == null) {
+            this.showStatus(Component.literal("没有找到该 Recipe Type 的代表样本"));
+            return;
+        }
+
+        List<Integer> inputSlots = new ArrayList<>();
+        int grid = Math.min(this.getGridSize(), 9);
+        boolean hasCatalyst = !model.fields(LearnedRecipeEditorModel.Role.CATALYST).isEmpty();
+        int inputCount = hasCatalyst ? Math.min(80, grid * grid) : grid * grid;
+        for (int i = 0; i < inputCount; i++) inputSlots.add(i);
+
+        String recipeId = this.mode7RegIdEdit != null ? this.mode7RegIdEdit.getValue().trim() : "";
+        if (recipeId.isBlank()) recipeId = "learned_" + this.mode7LearnedType.replace(':', '_').replaceAll("[^a-zA-Z0-9_.-]", "_");
+        if (!recipeId.matches("[a-zA-Z0-9_.-]+")) {
+            this.showStatus(Component.literal("Recipe ID 只能包含字母、数字、_、.、-"));
+            return;
+        }
+
+        try {
+            LearnedRecipeDraft draft = this.buildLearnedRecipeDraft(
+                    this.mode7LearnedType, source, inputSlots, hasCatalyst ? 80 : -1, 81);
+            File dir = new File(this.minecraft.gameDirectory, "kubejs/server_scripts");
+            if (!dir.exists()) dir.mkdirs();
+            File file = new File(dir, "visualcrafting_learned_recipes.js");
+            String script = draft.toKubeJs("visualcrafting:" + recipeId);
+            String old = file.isFile() ? Files.readString(file.toPath(), StandardCharsets.UTF_8) : "";
+            if (!old.contains(script)) {
+                Files.writeString(file.toPath(), old + (old.endsWith("\n") || old.isEmpty() ? "" : "\n\n") + script,
+                        StandardCharsets.UTF_8);
+            }
+            this.showStatus(Component.literal("已生成 " + file.getName() + " / " + this.mode7LearnedType));
+        } catch (Exception e) {
+            logWarn("Generate learned recipe failed: " + e.getMessage(), e);
+            this.showStatus(Component.literal("生成失败: " + e.getMessage()));
+        }
+    }
+
+    private List<String> learnedFieldSummary(String recipeType) {
+        List<String> result = new ArrayList<>();
+        LearnedRecipeEditorModel model = LearnedRecipeEditorModel.load(recipeType);
+        for (LearnedRecipeEditorModel.FieldBinding field : model.fields()) {
+            result.add(field.role().name() + "  " + field.path());
+            if (result.size() >= 6) break;
+        }
+        return result;
+    }
+
+    private void renderMode7LearnedExtras(GuiGraphics guiGraphics) {
+        int x = this.leftPos + 100;
+        int y = this.topPos + 15;
+        guiGraphics.drawString(this.font, "Recipe Type", x - 82, y, 4210752, false);
+        guiGraphics.drawString(this.font, "Catalyst", this.leftPos + 148, this.topPos + 57, 4210752, false);
+        guiGraphics.drawString(this.font, "Output", this.leftPos + 148, this.topPos + 92, 4210752, false);
+
+        List<String> fields = this.learnedFieldSummary(this.mode7LearnedType);
+        int fy = this.topPos + 112;
+        for (String field : fields) {
+            guiGraphics.drawString(this.font, field, this.leftPos + 8, fy, 8355711, false);
+            fy += 10;
+        }
     }
 
     private List<String> mode7TypeLabels() {
@@ -4389,6 +4527,10 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     }
 
     protected void renderMode7Extras(GuiGraphics guiGraphics) {
+        if (this.mode7LearnedOpen) {
+            this.renderMode7LearnedExtras(guiGraphics);
+            return;
+        }
         int gl = this.leftPos;
         int gt = this.topPos;
         int controlX = gl + 100;
