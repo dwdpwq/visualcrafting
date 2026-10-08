@@ -8,6 +8,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.visualcrafting.block.VisualCraftingBlockEntity;
+import com.visualcrafting.learning.LearningLibrary;
 import com.visualcrafting.merge.MergeManager;
 import com.visualcrafting.network.DimensionBiomesData;
 import com.visualcrafting.network.DisableBlockPacket;
@@ -636,6 +637,7 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         this.inventoryLabelX += this.invLabelOffsetX;
         this.inventoryLabelY += this.invLabelOffsetY;
         this.loadOffsets();
+        LearningLibrary.reload();
         this.readBEState();
         this.updateGuiSize();
         this.menu.setCurrentMode(this.mode);
