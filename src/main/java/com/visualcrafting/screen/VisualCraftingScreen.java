@@ -8,6 +8,8 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.visualcrafting.block.VisualCraftingBlockEntity;
+import com.visualcrafting.learning.LearnedRecipeDraft;
+import com.visualcrafting.learning.LearnedRecipeEditorModel;
 import com.visualcrafting.learning.LearningLibrary;
 import com.visualcrafting.merge.MergeManager;
 import com.visualcrafting.network.DimensionBiomesData;
@@ -217,6 +219,8 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
     int tierOffsetY = 0;
     List<VisualCraftingBlockEntity.SavedRecipe> recipes = new ArrayList<VisualCraftingBlockEntity.SavedRecipe>();
     List<VisualCraftingBlockEntity.InfusingRecipe> infusingRecipes = new ArrayList<VisualCraftingBlockEntity.InfusingRecipe>();
+    /** 当前未知 Recipe Type 的学习驱动编辑模型；为空表示尚未选择学习类型。 */
+    private LearnedRecipeEditorModel learnedRecipeEditorModel;
     List<Button> tierButtons = new ArrayList<Button>();
     List<Button> funcButtons = new ArrayList<Button>();
     Button formatToggle;
@@ -643,6 +647,59 @@ public class VisualCraftingScreen extends AbstractContainerScreen<VisualCrafting
         this.menu.setCurrentMode(this.mode);
         this.menu.updateSlotPositions(this.tier);
         this.rebuildWidgets();
+    }
+
+    /**
+     * 绑定一个 VAS 学习到的 Recipe Type。字段角色来自学习库，而不是根据 GUI 槽位位置猜测。
+     */
+    public void setLearnedRecipeType(String recipeType) {
+        this.learnedRecipeEditorModel = LearnedRecipeEditorModel.load(recipeType);
+    }
+
+    public LearnedRecipeEditorModel getLearnedRecipeEditorModel() {
+        return this.learnedRecipeEditorModel;
+    }
+
+    /**
+     * 从明确指定语义的输入/催化剂/产物槽位生成学习配方草稿。
+     * 调用方必须明确传入 catalystSlotIndex；模型不会因为某个输入槽“看起来像催化剂”而误判。
+     */
+    public LearnedRecipeDraft buildLearnedRecipeDraft(String recipeType, JsonObject source,
+                                                       List<Integer> inputSlotIndices,
+                                                       int catalystSlotIndex, int outputSlotIndex) {
+        LearnedRecipeEditorModel model = LearnedRecipeEditorModel.load(recipeType);
+        JsonObject draft = source == null ? new JsonObject() : source.deepCopy();
+
+        List<String> inputIds = new ArrayList<>();
+        if (inputSlotIndices != null) {
+            for (Integer slotIndex : inputSlotIndices) {
+                if (slotIndex == null || slotIndex < 0 || slotIndex >= this.menu.slots.size()) continue;
+                ItemStack stack = this.menu.slots.get(slotIndex).getItem();
+                if (stack.isEmpty()) continue;
+                ResourceLocation id = BuiltInRegistries.ITEM.getKey(stack.getItem());
+                if (id != null) inputIds.add(id.toString());
+            }
+        }
+        draft = model.applyInputItems(draft, inputIds);
+
+        if (catalystSlotIndex >= 0 && catalystSlotIndex < this.menu.slots.size()) {
+            ItemStack stack = this.menu.slots.get(catalystSlotIndex).getItem();
+            if (!stack.isEmpty()) {
+                ResourceLocation id = BuiltInRegistries.ITEM.getKey(stack.getItem());
+                if (id != null) draft = model.applyCatalyst(draft, id.toString());
+            }
+        }
+
+        if (outputSlotIndex >= 0 && outputSlotIndex < this.menu.slots.size()) {
+            ItemStack stack = this.menu.slots.get(outputSlotIndex).getItem();
+            if (!stack.isEmpty()) {
+                ResourceLocation id = BuiltInRegistries.ITEM.getKey(stack.getItem());
+                if (id != null) draft = model.applyOutput(draft, id.toString());
+            }
+        }
+
+        this.learnedRecipeEditorModel = model;
+        return new LearnedRecipeDraft(draft);
     }
 
     private void readBEState() {
